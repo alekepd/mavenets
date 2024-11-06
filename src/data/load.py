@@ -14,6 +14,29 @@ SEQ_CNAME: Final = "sequence"
 SIGNAL_CNAME: Final = "signal"
 EXPERIMENT_CNAME: Final = "experiment_index"
 
+BASE_ALPHA: Final = [
+    "A",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "I",
+    "K",
+    "L",
+    "M",
+    "N",
+    "P",
+    "Q",
+    "R",
+    "S",
+    "T",
+    "V",
+    "W",
+    "Y",
+]
+
 
 # applies column names solely based on column order.
 def _csv_read(f: Path) -> pd.DataFrame:
@@ -24,8 +47,8 @@ def _csv_read(f: Path) -> pd.DataFrame:
 
 def get_datasets(
     device: str,
-    train_specs: Union[None, Iterable[DataSpec],Iterable[int],Iterable[str]] = None,
-    val_specs: Union[None, Iterable[DataSpec],Iterable[int],Iterable[str]] = None,
+    train_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = None,
+    val_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = None,
     feat_type: Literal["integer"] = "integer",
     parent_path: Path = Path(),
 ) -> Tuple[TensorDataset, TensorDataset]:
@@ -60,7 +83,11 @@ def get_datasets(
 
     valid_frame = pd.concat(valid_frames)
 
-    enc = IntEncoder(get_alphabet(train_frame, SEQ_CNAME))
+    alpha = get_alphabet(train_frame, SEQ_CNAME)
+    if not set(alpha).issubset(set(BASE_ALPHA)):
+        raise ValueError("Data contains residues not represented fixed alphabet.")
+
+    enc = IntEncoder(BASE_ALPHA)
 
     train_encoded = enc.batch_encode(train_frame.loc[:, SEQ_CNAME])
     train_signal = tensor(train_frame.loc[:, SIGNAL_CNAME].to_numpy(), dtype=float32)
