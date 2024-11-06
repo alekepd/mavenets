@@ -3,7 +3,8 @@
 from typing import Final, Tuple, Iterable, Literal, Union
 import pandas as pd  # type: ignore
 from torch.utils.data import TensorDataset
-from torch import tensor, float32, int32
+from torch import tensor, float32, int32, int64
+from torch.nn.functional import one_hot
 from pathlib import Path
 from .spec import DATA_SPECS, DataSpec, resolve_dataspec
 from .featurize import IntEncoder, get_alphabet
@@ -49,11 +50,40 @@ def get_datasets(
     device: str,
     train_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = None,
     val_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = None,
-    feat_type: Literal["integer"] = "integer",
+    feat_type: Literal["integer", "onehot"] = "integer",
     parent_path: Path = Path(),
 ) -> Tuple[TensorDataset, TensorDataset]:
-    """Load and process data."""
-    if feat_type != "integer":
+    """Load and process data.
+
+    Arguments:
+    ---------
+    device:
+        Torch device on which to place the entire datasets. Likely "cuda" or "cpu".
+    train_specs:
+        None or Iterable of ints or strings used to specify what datasets to place in
+        the training dataset. If integers, compared against the index of the specs; if
+        a string, compared against the names. If None, all data sets are used.
+    val_specs:
+        None or Iterable of ints or strings used to specify what datasets to place in
+        the validation dataset. If integerss, compared against the index of the specs;
+        if a string, compared against the names. If None, all data sets are used.
+    feat_type:
+        Featurization used; only "integer" and "onehot" are accepted. "integer" 
+        corresponds to a vector with one integer entry per amino acid determining
+        the residue type. "onehot" creates a 0-1 vector that is longer with the same
+        information (see torch.nn.functional.one_hot). Note that the one hot is
+        converted to the float32 dtype.
+    parent_path:
+        Path object specifying where to look for csv files.
+
+    Returns:
+    -------
+    2-Tuple of TensorDatasets on the specified device.
+
+    TensorDatasets return (feat, signal, dataset_index) during iteration.
+
+    """
+    if feat_type not in ("integer", "onehot"):
         raise ValueError("Only integer featurization is supported.")
 
     if train_specs is None:
@@ -64,6 +94,7 @@ def get_datasets(
 
     train_frames = []
 
+    # load training datasets, record index
     for sp in (resolve_dataspec(x) for x in train_specs):
         print(sp)
         tf = _csv_read(parent_path / sp.train_filename)
@@ -74,7 +105,7 @@ def get_datasets(
 
     valid_frames = []
 
-    # this sorted is a good idea to make things stable.
+    # load validation datasets, record index
     for sp in (resolve_dataspec(x) for x in val_specs):
         print(sp)
         vf = _csv_read(parent_path / sp.valid_filename)
@@ -83,17 +114,34 @@ def get_datasets(
 
     valid_frame = pd.concat(valid_frames)
 
-    alpha = get_alphabet(train_frame, SEQ_CNAME)
+    # make sure that there are no amino acids in the data not in our standard
+    # alphabet. We use a standard alphabet to maintain featurization stability
+    # across possibly smaller input datasets.
+    alpha = get_alphabet(pd.concat(train_frame,valid_frame), SEQ_CNAME)
     if not set(alpha).issubset(set(BASE_ALPHA)):
         raise ValueError("Data contains residues not represented fixed alphabet.")
 
     enc = IntEncoder(BASE_ALPHA)
 
-    train_encoded = enc.batch_encode(train_frame.loc[:, SEQ_CNAME])
+    train_int_encoded = enc.batch_encode(train_frame.loc[:, SEQ_CNAME])
+    if feat_type == "onehot":
+        # we must cast to int64 to make torch happy
+        train_encoded = one_hot(
+            train_int_encoded.to(int64), num_classes=len(BASE_ALPHA)
+        ).to(float32)
+    else:
+        train_encoded = train_int_encoded
     train_signal = tensor(train_frame.loc[:, SIGNAL_CNAME].to_numpy(), dtype=float32)
     train_dset_id = tensor(train_frame.loc[:, EXPERIMENT_CNAME].to_numpy(), dtype=int32)
 
-    valid_encoded = enc.batch_encode(valid_frame.loc[:, SEQ_CNAME])
+    valid_int_encoded = enc.batch_encode(valid_frame.loc[:, SEQ_CNAME])
+    if feat_type == "onehot":
+        # we must cast to int64 to make torch happy
+        valid_encoded = one_hot(
+            valid_int_encoded.to(int64), num_classes=len(BASE_ALPHA)
+        ).to(float32)
+    else:
+        valid_encoded = valid_int_encoded
     valid_signal = tensor(valid_frame.loc[:, SIGNAL_CNAME].to_numpy(), dtype=float32)
     valid_dset_id = tensor(valid_frame.loc[:, EXPERIMENT_CNAME].to_numpy(), dtype=int32)
 
