@@ -117,7 +117,7 @@ def get_datasets(
     # make sure that there are no amino acids in the data not in our standard
     # alphabet. We use a standard alphabet to maintain featurization stability
     # across possibly smaller input datasets.
-    alpha = get_alphabet(pd.concat(train_frame,valid_frame), SEQ_CNAME)
+    alpha = get_alphabet(pd.concat([train_frame,valid_frame]), SEQ_CNAME)
     if not set(alpha).issubset(set(BASE_ALPHA)):
         raise ValueError("Data contains residues not represented fixed alphabet.")
 

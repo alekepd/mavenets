@@ -220,7 +220,7 @@ class SharedFanTuner(MHTuner):
             contr = mask * individual_corrected
             contributions.append(contr)
         if self.residual_connection:
-            corrected = sum(contributions) + signal
+            corrected = sum(contributions) + signal.view(-1, 1)
         else:
             corrected = sum(contributions)
         # accounts for whether the input was shape (batch,) or (batch, 1)

@@ -4,8 +4,8 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from torch import nn
-import data
-import network
+import .data
+import .network
 from tqdm import tqdm  # type: ignore
 import pandas as pd  # type: ignore
 
