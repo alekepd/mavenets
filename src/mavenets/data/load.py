@@ -96,7 +96,6 @@ def get_datasets(
 
     # load training datasets, record index
     for sp in (resolve_dataspec(x) for x in train_specs):
-        print(sp)
         tf = _csv_read(parent_path / sp.train_filename)
         tf[EXPERIMENT_CNAME] = sp.index
         train_frames.append(tf)
@@ -107,7 +106,6 @@ def get_datasets(
 
     # load validation datasets, record index
     for sp in (resolve_dataspec(x) for x in val_specs):
-        print(sp)
         vf = _csv_read(parent_path / sp.valid_filename)
         vf[EXPERIMENT_CNAME] = sp.index
         valid_frames.append(vf)

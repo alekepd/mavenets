@@ -1,10 +1,13 @@
 """Provides routines for completing typical training tasks."""
 
-from typing import Tuple, Callable, Any, Optional, Protocol
+from typing import Tuple, Callable, Any, Optional, Protocol, Union
+from warnings import warn
 import torch
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader
-from .util import null_contextmanager, sequence_mean
+from tqdm import tqdm  # type: ignore
+import pandas as pd  # type: ignore
+from .util import null_contextmanager, sequence_mean, Patience
 from .network import MHTuner
 
 # was this: loss = cal_loss + mix * raw_loss
@@ -12,6 +15,23 @@ from .network import MHTuner
 
 
 class DoubleParameterizedLoss(Protocol):
+    """Specialized loss function.
+
+    As input, takes a 2-tuple of tensors for the signal, a single tensor for the
+    reference, and an additional tensor to control the output.
+    """
+
+    def __call__(
+        self,
+        guesses: Tuple[torch.Tensor, torch.Tensor],
+        reference: torch.Tensor,
+        mix: torch.Tensor,
+    ) -> torch.Tensor:
+        """Evaluate loss."""
+        ...
+
+
+class DoubleLoss(Protocol):
     """Specialized loss function.
 
     As input, takes a 2-tupel of tensors for the signal, a single tensor for the
@@ -22,7 +42,6 @@ class DoubleParameterizedLoss(Protocol):
         self,
         guesses: Tuple[torch.Tensor, torch.Tensor],
         reference: torch.Tensor,
-        mix: torch.Tensor,
     ) -> torch.Tensor:
         """Evaluate loss."""
         ...
@@ -140,6 +159,30 @@ class _MHTunerWrapper(torch.nn.Module):
         return self.tuned_model(inp[0], inp[1], return_raw=True)
 
 
+def _eval_dataset(
+    evaler: ParamTrainEval,
+    dataset: torch.utils.data.Dataset,
+    batch_size: int,
+    loss_param: torch.Tensor,
+) -> float:
+    """Loader and evaluate loss on given data."""
+    loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+    )
+    loss = sequence_mean(
+        [
+            evaler(
+                inp=(seq, dataset_index),
+                reference=signal,
+                loss_param=loss_param,
+            ).item()
+            for seq, signal, dataset_index in loader
+        ]
+    )
+    return loss
+
+
 def train_tunable_model(
     model: MHTuner,
     optimizer: torch.optim.Optimizer,
@@ -147,18 +190,27 @@ def train_tunable_model(
     n_epochs: int,
     train_dataset: torch.utils.data.Dataset,
     valid_dataset: torch.utils.data.Dataset,
-    loss_function: DoubleParameterizedLoss = mixed_MSE,
+    train_loss_function: DoubleParameterizedLoss = mixed_MSE,
+    report_loss_function: DoubleParameterizedLoss = mixed_MSE,
     train_batch_size: int = 32,
     reporting_batch_size: int = 512,
     report_stride: int = 5,
     compile: bool = False,
     compile_mode: str = "reduce-overhead",
     train_bfloat16: bool = True,
-    loss_param: Optional[torch.Tensor] = None,
+    start_loss_param: Union[float, torch.Tensor] = 0.5,
+    end_loss_param: Union[float, torch.Tensor] = 0.0,
+    loss_param_ramp_size: int = 20,
     grad_clip: float = 1e3,
-) -> None:
-    if loss_param is None:
-        loss_param = torch.tensor(0.1).to(device)
+    progress_bar: bool = False,
+    patience: int = 50,
+) -> Tuple[int, float, pd.DataFrame]:
+
+    loss_param_schedule = list(
+        torch.linspace(
+            start_loss_param, end_loss_param, loss_param_ramp_size, device=device
+        )
+    )
 
     wrapped_model = _MHTunerWrapper(model)
 
@@ -167,7 +219,7 @@ def train_tunable_model(
         optimizer=optimizer,
         device=device,
         bfloat16=train_bfloat16,
-        loss_function=loss_function,
+        loss_function=train_loss_function,
         compile=compile,
         compile_mode=compile_mode,
         grad_clip=grad_clip,
@@ -176,7 +228,7 @@ def train_tunable_model(
     evaler = create_evaler(
         model=wrapped_model,
         device=device,
-        loss_function=loss_function,
+        loss_function=report_loss_function,
         compile=compile,
         compile_mode=compile_mode,
     )
@@ -185,39 +237,57 @@ def train_tunable_model(
         train_dataset, batch_size=train_batch_size, shuffle=True
     )
 
-    reporting_valid_dataloader = DataLoader(
-        valid_dataset,
-        batch_size=reporting_batch_size,
-    )
-    reporting_train_dataloader = DataLoader(
-        train_dataset,
-        batch_size=reporting_batch_size,
-    )
-    for epoch in range(n_epochs):
+    patience_counter: Patience[float] = Patience()
+
+    records = []
+    record_epochs = []
+    if progress_bar:
+        epoch_source = tqdm(range(n_epochs))
+    else:
+        epoch_source = range(n_epochs)
+    for epoch in epoch_source:
+        try:
+            loss_param = loss_param_schedule.pop(0)
+        except IndexError:
+            pass
         for seq, signal, dataset_index in train_dataloader:
             train_stepper(
                 inp=(seq, dataset_index), reference=signal, loss_param=loss_param
             )
         if epoch % report_stride == 0:
             with torch.no_grad():
-                epoch_train_loss = sequence_mean(
-                    [
-                        evaler(
-                            inp=(seq, dataset_index),
-                            reference=signal,
-                            loss_param=loss_param,
-                        ).item()
-                        for seq, signal, dataset_index in reporting_train_dataloader
-                    ]
+                epoch_train_loss = _eval_dataset(
+                    evaler=evaler,
+                    dataset=train_dataset,
+                    batch_size=reporting_batch_size,
+                    loss_param=loss_param,
                 )
-                epoch_val_loss = sequence_mean(
-                    [
-                        evaler(
-                            inp=(seq, dataset_index),
-                            reference=signal,
-                            loss_param=loss_param,
-                        ).item()
-                        for seq, signal, dataset_index in reporting_valid_dataloader
-                    ]
+                epoch_val_loss = _eval_dataset(
+                    evaler=evaler,
+                    dataset=valid_dataset,
+                    batch_size=reporting_batch_size,
+                    loss_param=loss_param,
                 )
-                print(epoch_train_loss, epoch_val_loss)
+            record_epochs.append(epoch)
+            records.append((epoch_train_loss, epoch_val_loss, loss_param.item()))
+            patience_count = patience_counter.consider(epoch_val_loss)
+            if patience_count > patience / report_stride:
+                break
+            if progress_bar:
+                epoch_source.set_description(
+                    "{}/{}".format(round(epoch_val_loss, 3), patience_count)
+                )
+    else:
+        warn(
+            "Maximum number of epochs reached. Possibly not converged.",
+            UserWarning,
+            stacklevel=1,
+        )
+
+    table = pd.DataFrame(
+        records, record_epochs, columns=["train_loss", "valid_loss", "loss_param"]
+    )
+    rolled_vals = table["valid_loss"].rolling(3, center=True).median()
+    best_epoch = rolled_vals.index[rolled_vals.argmin(skipna=True)]
+    best_val = rolled_vals.min()
+    return best_epoch, best_val, table
