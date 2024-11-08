@@ -82,7 +82,7 @@ class BaseFFN(nn.Module):
     residual connections, dropout, and ELULinear units.
 
     Note that the input is assumed be flat (in the sence of nn.Linear
-    broadcasting). Networks are roughtly of the form
+    broadcasting). Networks are roughly of the form
 
                               <inp>
                                 |

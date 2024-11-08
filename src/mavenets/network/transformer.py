@@ -1,39 +1,107 @@
 """Provides tools for creating transformer models."""
 
-from typing import Tuple, Union, Optional
+from typing import Tuple, Union, Callable
 from torch import nn
 import torch
 
 
-class TrPredictor(nn.Module):
-    """Transformer-based prediction model."""
+class SumTransformer(nn.Module):
+    """Transformer prediction model with summed contributions.
+
+    Input is treated as sequence of tokens, with each token corresponding
+    to an amino acid. Positional and amino-acid-type encodings are summed
+    and then passed through transformer blocks for for adjustment. After
+    this adjustment, a shared linear layer is applied to all tokens
+    to predict a scalar energy contribution, which is then summed over
+    the entire sequence.
+
+    This roughly corresponds to the following diagram:
+
+                     <sequence input>
+                            |
+      <position encoding>---+---<amino encoding>
+                 |                     |
+                 +--------[sum]--------+
+                            |
+                        [Block()] * N
+                            |
+               [ [token1], ... [token n] ]
+                     |      |      |
+                 <W(.)+b>  ...  <W(.)+b>
+                     |      |      |
+               [    E_1,   ...    E_n    ]
+                     |      |      |
+                     +----<sum>----+
+                            |
+                         <output>
+
+    where <W(.) +b> is a single shared linear transformation predicting a scalar.
+
+    Input is expected to be of the form (batch_size, n_token, n_feature). In the case of
+    amino acids, the feature is probably best a integer corresponding to the amino acid
+    identity. All such integers should be non-negative.
+    """
 
     def __init__(
         self,
         alphabet_size: int,
         emb_size: int = 32,
-        block_size: int = 32,
-        full_size: int = 201,
+        max_sequence_size: int = 201,
         n_transformers: int = 1,
-        num_heads: int = 1,
+        n_heads: int = 1,
+        head_mlp_hidden_size: int = 512,
+        block_mlp_dropout: float = 0.2,
+        block_mha_dropout: float = 0.2,
+        block_activation_class: Callable[[], nn.Module] = nn.SiLU,
     ) -> None:
-        """Initialize layers and data."""
+        """Initialize layers and data.
+
+        Arguments:
+        ---------
+        alphabet_size:
+            Maximum integer found in the feature column of the input.
+        emb_size:
+            Dimensionality of embeddings used.
+        max_sequence_size:
+            Largest input sequence (n_tokens_ considered. Here set to the SARS-COV-1
+            considered sequence length.
+        n_transformers:
+            Number of transformer adjustments to apply.
+        n_heads:
+            Number of transformer heads. See Block.
+        head_mlp_hidden_size:
+            Size of hidden layer in block networks. See Block.
+        block_mlp_dropout:
+            Dropout in block networks. See Block.
+        block_mha_dropout:
+            Dropout in block attention. See Block.
+        block_activation_class:
+            Callable that returns activation functions for created networks; passed to
+
+        """
         # hack to round up common alphabet size to a power of two.
         super().__init__()
         alphabet_size = max(alphabet_size, 32)
-        self.full_size = full_size
+        self.max_sequence_size = max_sequence_size
         self.embedder = nn.Embedding(
             num_embeddings=alphabet_size, embedding_dim=emb_size
         )
         self.pos_embedder = nn.Embedding(
             # use a power of two bounding size in the actual case
-            num_embeddings=max(full_size, 256),
+            num_embeddings=max(max_sequence_size, 256),
             embedding_dim=emb_size,
         )
 
         self.refiners = nn.ModuleList(
             [
-                Block(input_emb_size=emb_size, emb_size=block_size, num_heads=num_heads)
+                Block(
+                    emb_size=emb_size,
+                    hidden_mlp_size=head_mlp_hidden_size,
+                    dropout=block_mlp_dropout,
+                    mha_dropout=block_mha_dropout,
+                    num_heads=n_heads,
+                    activation_class=block_activation_class,
+                )
                 for x in range(n_transformers)
             ]
         )
@@ -45,7 +113,7 @@ class TrPredictor(nn.Module):
         encoded_seq: torch.Tensor,
     ) -> Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor]:
         """Predict scalar for int-encoded data."""
-        _pos = torch.arange(self.full_size, device=encoded_seq.device)
+        _pos = torch.arange(self.max_sequence_size, device=encoded_seq.device)
         _pos_emb = self.pos_embedder(_pos)
         emb = self.embedder(encoded_seq) + _pos_emb
         for tr in self.refiners:
@@ -59,39 +127,64 @@ class TrPredictor(nn.Module):
 
 
 class Block(nn.Module):
-    """Transformer with self attention."""
+    """Transformer with self attention.
+
+    Evaluates full (non-causal) attention, processes via MLP, and adjusts input via
+    residual connections.
+    """
 
     def __init__(
         self,
         emb_size: int = 32,
-        input_emb_size: Optional[int] = None,
         hidden_mlp_size: int = 512,
         dropout: float = 0.2,
         mha_dropout: float = 0.2,
         num_heads: int = 1,
         init_scale: float = 0.7,
+        activation_class: Callable[[], nn.Module] = nn.SiLU,
     ) -> None:
-        """Initialize layers and data."""
+        """Initialize layers and data.
+
+        Input to forward have shape (batch_size, n_token, emb_size).
+
+        Arguments:
+        ---------
+        emb_size:
+            Size of last dimension in input.
+        hidden_mlp_size:
+            Size of hidden layer in network.
+        dropout:
+            Dropout in post-attention network.
+        mha_dropout:
+            Dropout in attention block (see nn.MultiHeadAttention).
+        num_heads:
+            Number of heads in multihead attention.
+        init_scale:
+            Used to scale initial values. May be useful to modify when many blocks are
+            stacked.
+        activation_class:
+            Callable that returns an activation function (not an activation function
+            itself, likely a class).
+
+        """
         super().__init__()
-        if input_emb_size is None:
-            input_emb_size = emb_size
         self.emb_size = emb_size
         self.mha = nn.MultiheadAttention(
             embed_dim=emb_size,
             num_heads=num_heads,
             dropout=mha_dropout,
-            kdim=input_emb_size,
-            vdim=input_emb_size,
+            kdim=emb_size,
+            vdim=emb_size,
             batch_first=True,
         )
         self.mlp = nn.Sequential(
-            nn.Linear(input_emb_size, hidden_mlp_size),
-            nn.SiLU(),
-            nn.Linear(hidden_mlp_size, input_emb_size),
+            nn.Linear(emb_size, hidden_mlp_size),
+            activation_class(),
+            nn.Linear(hidden_mlp_size, emb_size),
             nn.Dropout(dropout),
         )
-        self.pre_head_norm = nn.LayerNorm(input_emb_size)
-        self.pre_mlp_norm = nn.LayerNorm(input_emb_size)
+        self.pre_head_norm = nn.LayerNorm(emb_size)
+        self.pre_mlp_norm = nn.LayerNorm(emb_size)
 
         with torch.no_grad():
             for p in self.parameters():
