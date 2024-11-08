@@ -1,4 +1,7 @@
-"""Basic tools used elsewhere in the library."""
+"""Basic routines used elsewhere in the library.
+
+This module should not import any other modules in the package.
+"""
 from typing import Iterator, Sequence, TypeVar, Any, Callable, Optional, Generic
 from contextlib import contextmanager
 from operator import lt
@@ -6,9 +9,10 @@ from operator import lt
 _T = TypeVar("_T")
 
 
+# the noqa directive is for unused arguments, which are intended here.
 @contextmanager
 def null_contextmanager(*args, **kwargs) -> Iterator[None]:  # noqa: ARG001
-    """Context mananger that does nothing.
+    """Context manager that does nothing.
 
     Useful as alternative in meta code selecting various possible managers. All
     arguments are ignored.
@@ -20,21 +24,92 @@ def null_contextmanager(*args, **kwargs) -> Iterator[None]:  # noqa: ARG001
 
 
 def sequence_mean(s: Sequence[_T], start: Any = 0) -> _T:
+    """Calculate the mean of a sequence.
+
+    Sequence is first summed, and then the result is divided by the length.
+
+    This function cannot be easily type-hinted in a safe way when using generic types.
+
+    Arguments:
+    ---------
+    s:
+        Sequence to iterate over.
+    start:
+        Passed to sum.
+
+    Returns:
+    -------
+    sum divided by length.
+
+    """
     length = float(len(s))
-    return sum(s, start=start) / length #type: ignore
+    return sum(s, start=start) / length  # type: ignore
 
 
 class Patience(Generic[_T]):
+    """Repeatedly calculates whether a new element is better than a held element.
 
-    def __init__(self, comparison: Callable[[_T,_T],bool] = lt) -> None: #type: ignore
+    If better, the new element is then held.
+
+    This class is useful for patience-based stopping of training, where it can be
+    used to report how long ago a better validation loss was observed.
+
+    """
+
+    # we ignore type errors as the type signature for lt is complex, and furthermore
+    # does not apply to arbitrary types.
+    def __init__(self, comparison: Callable[[_T, _T], bool] = lt) -> None:  # type: ignore
+        """Store options.
+
+        Arguments:
+        ---------
+        comparison:
+            2-argument Callable used to compare new elements to previous elements.
+            Should return True if the second argument is better than the first argument,
+            False otherwise. Defaults to the function form of '<'
+
+        """
         self.comparison = comparison
         self.counter = 0
         self.saved: Optional[_T] = None
 
     def consider(self, new: _T) -> int:
+        """Consider a new element.
+
+        If held item is better, we return the how long ago the held item was proposed.
+        If the new item is better, we return 0 and make it the held item.
+
+        Arguments:
+        ---------
+        new:
+            item to consider.
+
+        Returns:
+        -------
+        Integer describing how long ago the best item was found.
+
+        """
         if self.saved is None or self.comparison(new, self.saved):
             self.saved = new
             self.counter = 0
         else:
             self.counter += 1
         return self.counter
+
+    def __call__(self, new: _T) -> int:
+        """Consider a new element.
+
+        If held item is better, we return the how long ago the held item was proposed.
+        If the new item is better, we return 0 and make it the held item.
+
+        Arguments:
+        ---------
+        new:
+            item to consider.
+
+        Returns:
+        -------
+        Integer describing how long ago the best item was found.
+
+        """
+        return self.consider(new)
