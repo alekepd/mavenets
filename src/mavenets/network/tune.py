@@ -1,4 +1,46 @@
-"""Provides tools to adjust the output of an existing callable."""
+"""Provides tools to tune (adjust) the output of an existing callable.
+
+Adjustments are performed by nn.Modules which take as existing callable as input during
+definition. During invocation, the adjustment module calls the underlying source
+callable and adjusts the output. If the underlying callable is a nn.Module, the
+adjustment object functions as a composite module containing all tuning and source
+parameters.
+
+For example, in the case of
+```
+source_model = BaseFFN(...)
+adjusted_model =  SharedFanTuner(source_model, ...)
+```
+`adjusted_model` now is `source_model` with a calibrator.
+
+Importantly, all classes in this module are "multi-head" calibrations which change
+the input signature of a model which maps single tensor to a single tensor to one
+which maps a pair of tensors (as distinct arguments) to a single tensor. The first
+item in the input pair is passed to the underlying function, while the second
+is passed to the adjustement/tuning function. Typically, the second tensor is a
+single int32/64 for each batch item indexing one of several "heads", each of which
+contains a different tuning function.
+
+The adjusted/tuned output is returned, and so can the original output of the
+wrapped model.  This corresponds to the following flow of information for a
+model wrapped in an adjustment/tuning Module:
+
+                     <input-1>   <input-2>
+                         |           |
+               <underlying model>    |
+                         |           |
+            +------------+           |
+            |            |           |
+            |         <tuner>------- +
+            |            |
+            |            |
+      <raw output>  <tuned output>
+
+This behavior is defined in the abstract MHTuner class. This behavior is then
+implemented in different child classes which define the tuning procedure.
+
+
+"""
 
 from typing import Callable, overload, Union, Tuple, Literal
 from .base import BaseFFN
@@ -14,7 +56,9 @@ class MHTuner(nn.Module):
     are possible are selected based on a (likely integer) tensor supplied to
     the forward method.
 
-    After creation, this Module may be directly used in place of the original model.
+    After creation, this Module may be directly used in place of the original callable.
+    If the original callable is a nn.Module, the new Module parameters include that of
+    the original nn.Module.
 
     This class provides the structure to return both the adjusted and raw
     input.  Child classes should inherent this class and override tune. They
@@ -141,7 +185,24 @@ class SharedFanTuner(MHTuner):
     is applied to linearly combine these features into an output signal. The first
     step is shared among the different tuning heads, but the second is not.
 
-    This class does not support negative numbers in the head_index argument.
+    This corresponds to the following effective structure on each input.
+
+                            <input-1>               <input-2>
+                                |                       |
+                    +-----------+                       |
+                    |           |                       |
+                    |     <wrapped model>               |
+                    |           |                       |
+                    |   <fan featurization>  <select tuning head>
+                    |           |                       |
+                    |           +--<apply tuning head>--+
+                    |                      |
+                    |                      |
+               <raw output>           <tuned output>
+
+    Here, each tuning head is a simple linear layer. `input-k` is interpreted
+    as an index selecting which head to use; as a result, n_heads must represent
+    the length of a list that can be indexed by all integers that might be seen.
     """
 
     def __init__(
@@ -230,7 +291,27 @@ class SharedFanTuner(MHTuner):
 class FFNTuner(MHTuner):
     """Tunes input using multiple fully connected networks.
 
-    This class does not support negative numbers in the head_index argument.
+    This class is built to apply to one-dimensional input (not including batch
+    dimension).
+
+    Input is processed by one of multiple feed forward networks. No parameters
+    are shared between the networks.
+
+    This corresponds to the following effective structure on each input.
+
+                            <input-1>               <input-2>
+                                |                       |
+                    +-----------+                       |
+                    |           |              <select tuning head>
+                    |           |                       |
+                    |           +--<apply tuning head>--+
+                    |                      |
+               <raw output>           <tuned output>
+
+    Here, each tuning head is a simple linear layer. `input-k` is interpreted
+    as an index selecting which head to use; as a result, n_heads must represent
+    the length of a list that can be indexed by all integers that might be seen.
+
     """
 
     def __init__(
