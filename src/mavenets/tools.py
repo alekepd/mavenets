@@ -31,22 +31,6 @@ class DoubleParameterizedLoss(Protocol):
         ...
 
 
-class DoubleLoss(Protocol):
-    """Specialized loss function.
-
-    As input, takes a 2-tupel of tensors for the signal, a single tensor for the
-    reference, and an additional tensor to control the output.
-    """
-
-    def __call__(
-        self,
-        guesses: Tuple[torch.Tensor, torch.Tensor],
-        reference: torch.Tensor,
-    ) -> torch.Tensor:
-        """Evaluate loss."""
-        ...
-
-
 class ParamTrainEval(Protocol):
     """Callable that minimizes a model.
 
