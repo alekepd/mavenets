@@ -42,14 +42,15 @@ implemented in different child classes which define the tuning procedure.
 
 """
 
-from typing import Callable, overload, Union, Tuple, Literal
+from typing import Callable, overload, Union, Tuple, Literal, TypeVar, Generic
 from .base import BaseFFN
 from torch import nn, Tensor
 
 _model_T = Callable[[Tensor], Tensor]
+_T = TypeVar("_T")
 
 
-class MHTuner(nn.Module):
+class MHTuner(nn.Module, Generic[_T]):
     """Abstract class of a multihead tuner.
 
     Tuners take the output of an exist class and adjust it. Multiple adjustments
@@ -66,31 +67,31 @@ class MHTuner(nn.Module):
 
     """
 
-    def __init__(self, base_model: _model_T) -> None:
+    def __init__(self, base_model: Callable[[_T], Tensor]) -> None:
         """Initialize module structure and store base model."""
         super().__init__()
         self.base_model = base_model
 
     @overload
     def forward(
-        self, inp: Tensor, head_index: Tensor, return_raw: Literal[False]
+        self, inp: _T, head_index: Tensor, return_raw: Literal[False]
     ) -> Tensor:
         ...
 
     @overload
     def forward(
-        self, inp: Tensor, head_index: Tensor, return_raw: Literal[True]
+        self, inp: _T, head_index: Tensor, return_raw: Literal[True]
     ) -> Union[Tensor, Tensor]:
         ...
 
     @overload
     def forward(
-        self, inp: Tensor, head_index: Tensor, return_raw: Literal[False] = ...
+        self, inp: _T, head_index: Tensor, return_raw: Literal[False] = ...
     ) -> Tensor:
         ...
 
     def forward(
-        self, inp: Tensor, head_index: Tensor, return_raw: bool = False
+        self, inp: _T, head_index: Tensor, return_raw: bool = False
     ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
         """Apply underlying model and tune.
 
@@ -146,13 +147,13 @@ class MHTuner(nn.Module):
         )
 
 
-class NullTuner(MHTuner):
+class NullTuner(MHTuner[_T]):
     """Tuner that does nothing.
 
     Provided to allow non-tuned models to function in tuned pipelines.
     """
 
-    def __init__(self, base_model: _model_T) -> None:
+    def __init__(self, base_model: Callable[[_T], Tensor]) -> None:
         """Call parent initializer."""
         super().__init__(base_model=base_model)
 
@@ -174,7 +175,7 @@ class NullTuner(MHTuner):
         return signal
 
 
-class SharedFanTuner(MHTuner):
+class SharedFanTuner(MHTuner[_T]):
     """Applies a simple shared head-based linear network tuning.
 
     This class is built to apply to one-dimensional input (not including batch
@@ -207,7 +208,7 @@ class SharedFanTuner(MHTuner):
 
     def __init__(
         self,
-        base_model: _model_T,
+        base_model: Callable[[_T], Tensor],
         n_heads: int,
         dropout: float = 0.0,
         fan_size: int = 16,
@@ -288,7 +289,7 @@ class SharedFanTuner(MHTuner):
         return corrected.view(signal_shape)
 
 
-class FFNTuner(MHTuner):
+class FFNTuner(MHTuner[_T]):
     """Tunes input using multiple fully connected networks.
 
     This class is built to apply to one-dimensional input (not including batch
@@ -316,7 +317,7 @@ class FFNTuner(MHTuner):
 
     def __init__(
         self,
-        base_model: _model_T,
+        base_model: Callable[[_T], Tensor],
         n_heads: int,
         hidden_size: int,
         n_hidden: int,
