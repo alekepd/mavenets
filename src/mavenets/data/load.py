@@ -68,7 +68,7 @@ def get_datasets(
         the validation dataset. If integerss, compared against the index of the specs;
         if a string, compared against the names. If None, all data sets are used.
     feat_type:
-        Featurization used; only "integer" and "onehot" are accepted. "integer" 
+        Featurization used; only "integer" and "onehot" are accepted. "integer"
         corresponds to a vector with one integer entry per amino acid determining
         the residue type. "onehot" creates a 0-1 vector that is longer with the same
         information (see torch.nn.functional.one_hot). Note that the one hot is
@@ -115,7 +115,7 @@ def get_datasets(
     # make sure that there are no amino acids in the data not in our standard
     # alphabet. We use a standard alphabet to maintain featurization stability
     # across possibly smaller input datasets.
-    alpha = get_alphabet(pd.concat([train_frame,valid_frame]), SEQ_CNAME)
+    alpha = get_alphabet(pd.concat([train_frame, valid_frame]), SEQ_CNAME)
     if not set(alpha).issubset(set(BASE_ALPHA)):
         raise ValueError("Data contains residues not represented fixed alphabet.")
 
