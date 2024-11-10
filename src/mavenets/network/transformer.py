@@ -3,6 +3,7 @@
 from typing import Tuple, Union, Callable
 from torch import nn
 import torch
+from .base import FFLayer
 
 
 class SumTransformer(nn.Module):
@@ -53,6 +54,8 @@ class SumTransformer(nn.Module):
         block_mlp_dropout: float = 0.2,
         block_mha_dropout: float = 0.2,
         block_activation_class: Callable[[], nn.Module] = nn.SiLU,
+        n_final_layers: int = 0,
+        final_dropout: float = 0,
     ) -> None:
         """Initialize layers and data.
 
@@ -105,8 +108,21 @@ class SumTransformer(nn.Module):
                 for x in range(n_transformers)
             ]
         )
-        self.penfinal_lnorm = nn.LayerNorm(emb_size)
-        self.penfinal = nn.Linear(emb_size, 1, bias=True)
+        self.final_lnorm = nn.LayerNorm(emb_size)
+        if n_final_layers >= 0:
+            flayers = [
+                FFLayer(
+                    in_size=emb_size,
+                    out_size=emb_size,
+                    residual_connection=True,
+                    pre_layer_norm=True,
+                    dropout=final_dropout,
+                )
+                for _ in range(n_final_layers)
+            ]
+            self.final = nn.Sequential(*flayers, nn.Linear(emb_size, 1, bias=True))
+        else:
+            raise ValueError("n_final_layers must be positive.")
 
     def forward(
         self,
@@ -118,7 +134,7 @@ class SumTransformer(nn.Module):
         emb = self.embedder(encoded_seq) + _pos_emb
         for tr in self.refiners:
             emb = tr(emb)
-        contrib = self.penfinal(self.penfinal_lnorm(emb))
+        contrib = self.final(self.final_lnorm(emb))
 
         # get uncalibrated prediction
         underlying = contrib.sum(dim=(-2,))

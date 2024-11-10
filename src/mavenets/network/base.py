@@ -16,6 +16,10 @@ import torch.nn as nn
 from torch.nn.parameter import Parameter
 
 
+def _identity(inp: torch.Tensor) -> torch.Tensor:
+    return inp
+
+
 class ELULinear(nn.Module):
     r"""Linear layer with positive-only linear transformation.
 
@@ -72,6 +76,39 @@ class ELULinear(nn.Module):
                 inp @ (torch.nn.functional.elu(self.weights) + 1.0 - self.leak)
                 + self.bias
             )
+
+
+class FFLayer(nn.Module):
+    def __init__(
+        self,
+        in_size: int,
+        out_size: int,
+        bias: bool = True,
+        residual_connection: bool = False,
+        activation_class: Callable[[], nn.Module] = nn.LeakyReLU,
+        pre_layer_norm: bool = False,
+        dropout: float = 0.0
+    ) -> None:
+        super().__init__()
+        self.affine = nn.Linear(in_size, out_size, bias=bias)
+        self.activation = activation_class()
+        self.residual_connection = residual_connection
+        self.dropout = nn.Dropout(dropout)
+        if pre_layer_norm:
+            self.pre_layer_norm: Callable[[torch.Tensor], torch.Tensor] = nn.LayerNorm(
+                normalized_shape=in_size
+            )
+        else:
+            self.pre_layer_norm = _identity
+
+    def forward(self, inp: torch.Tensor) -> torch.Tensor:
+        proc = self.pre_layer_norm(inp)
+        proc = self.affine(proc)
+        proc = self.activation(proc)
+        proc = self.dropout(proc)
+        if self.residual_connection:
+            proc = inp + proc
+        return proc
 
 
 class BaseFFN(nn.Module):
