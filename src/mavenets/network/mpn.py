@@ -1,13 +1,13 @@
 """Message passing neural network."""
 
-from typing import Final
+from typing import Final, Any
 import torch
 import torch.nn as nn
 from torch_scatter import scatter, scatter_mean  # type: ignore
 from einops.layers import torch as einops_torch
-from torch_geometric.loader import DataLoader  # type: ignore
+from torch_geometric.loader import DataLoader as pygDataLoader  # type: ignore
 from torch_geometric.data import Data  # type: ignore
-from ..data import GraphDataReader
+from ..data import LegacyGraphDataReader
 
 
 class Message(nn.Module):
@@ -49,7 +49,8 @@ class Message(nn.Module):
         # shape -> (batch, num_edges = (num_nodes * num_nodes), num_feats)
         message = self.message(edge)
         update = scatter(
-            message, target, reduce="mean", dim=0, dim_size=target.max() + 1
+            #message, target, reduce="mean", dim=0, dim_size=target.max() + 1
+            message, target, reduce="mean", dim=0, dim_size=x.shape[0]
         )
 
         x = res + update
@@ -108,7 +109,7 @@ class GraphNet(nn.Module):
         return x.sum(dim=-1)
 
 
-def test() -> nn.Module:
+def _legacy_example() -> Any:
     """Create model."""
     BASE_DIR: Final = "/group/ag_cmb/scratch/tsztain/Bloom/"
     STRUCTURE_FILE: Final = (
@@ -135,27 +136,23 @@ def test() -> nn.Module:
     DEVICE: Final = "cuda" if torch.cuda.is_available() else "cpu"
 
     train_data, test_data, valid_data = [
-        GraphDataReader(
+        LegacyGraphDataReader(
             base_dir=BASE_DIR,
             structure_file=STRUCTURE_FILE,
             num_distance_features=NUM_DISTANCE_FEATS,
             window_size=WINDOW_SIZE,
-            dataset=dataset, # type: ignore
+            dataset=dataset, #type: ignore
             flattened=True,
         )
         for dataset in ("train", "test", "valid")
     ]
     train_dl, test_dl, valid_dl = [
-        DataLoader(data, shuffle=True, batch_size=BATCH_SIZE)
+        pygDataLoader(data, shuffle=True, batch_size=BATCH_SIZE)
         for data in (train_data, test_data, valid_data)
     ]
 
     model = GraphNet(
-        NUM_NODES, NUM_FEATURES, NUM_HIDDEN, NUM_MESSAGES, NUM_EDGE_FEATS
-    ).to(DEVICE)
+        201, NUM_FEATURES, NUM_HIDDEN, NUM_MESSAGES, NUM_EDGE_FEATS
+    )
 
-    return model
-
-
-if __name__ == "__main":
-    test()
+    return model, train_data, train_dl

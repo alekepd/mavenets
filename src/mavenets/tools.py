@@ -1,10 +1,11 @@
 """Provides routines for completing typical training tasks."""
 
-from typing import Tuple, Callable, Any, Optional, Protocol, Union
+from typing import Tuple, Callable, Any, Optional, Protocol, Union, Final
 from warnings import warn
 import torch
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader
+from torch_geometric.loader import DataLoader as pygDataLoader  # type: ignore
 from tqdm import tqdm  # type: ignore
 import pandas as pd  # type: ignore
 from .util import null_contextmanager, sequence_mean, Patience
@@ -12,6 +13,9 @@ from .network import MHTuner
 
 # was this: loss = cal_loss + mix * raw_loss
 # for later: loss = mix_cal * cal_loss + mix_raw * raw_loss
+
+SIGNAL_PYGBATCHKEY: Final = "y"
+EXP_PYGBATCHKEY: Final = "experiment"
 
 
 class DoubleParameterizedLoss(Protocol):
@@ -57,7 +61,6 @@ def mixed_MSE(
     second_mse = torch.nn.functional.mse_loss(guesses[1], reference)
     return (1.0 - mix) * first_mse + mix * second_mse
 
-
 def create_parameterized_train_stepper(
     *,
     model: torch.nn.Module,
@@ -97,6 +100,26 @@ def create_parameterized_train_stepper(
     return to_return
 
 
+class _MHTunerWrapper(torch.nn.Module):
+    """Changes function signatures for smooth usage of compilation functions."""
+
+    _GRAPH_TUNE_KEY: Final = EXP_PYGBATCHKEY
+
+    def __init__(self, tuned_model: MHTuner, graph: bool = False) -> None:
+        super().__init__()
+        self.tuned_model = tuned_model
+        self.graph = graph
+
+    def forward(
+        self,
+        inp: Any,
+    ) -> Tuple[Any, torch.Tensor]:
+        if self.graph:
+            return self.tuned_model(inp, inp[self._GRAPH_TUNE_KEY], return_raw=True)
+        else:
+            return self.tuned_model(inp[0], inp[1], return_raw=True)
+
+
 def create_evaler(
     *,
     model: torch.nn.Module,
@@ -105,6 +128,7 @@ def create_evaler(
     bfloat16: bool = False,
     compile: bool = False,
     compile_mode: Optional[str] = None,
+    graph: bool = False,
 ) -> ParamTrainEval:
 
     if bfloat16:
@@ -130,41 +154,40 @@ def create_evaler(
     return to_return
 
 
-class _MHTunerWrapper(torch.nn.Module):
-    """Changes function signatures for smooth usage of compilation functions."""
-
-    def __init__(self, tuned_model: MHTuner) -> None:
-        super().__init__()
-        self.tuned_model = tuned_model
-
-    def forward(
-        self, inp: Tuple[torch.Tensor, torch.Tensor]
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        return self.tuned_model(inp[0], inp[1], return_raw=True)
-
-
 def _eval_dataset(
     evaler: ParamTrainEval,
     dataset: torch.utils.data.Dataset,
     batch_size: int,
     loss_param: torch.Tensor,
+    graph: bool = False,
 ) -> float:
     """Loader and evaluate loss on given data."""
-    loader = DataLoader(
-        dataset,
-        batch_size=batch_size,
-    )
-    loss = sequence_mean(
-        [
-            evaler(
-                inp=(seq, dataset_index),
-                reference=signal,
-                loss_param=loss_param,
-            ).item()
-            for seq, signal, dataset_index in loader
-        ]
-    )
-    return loss
+    if graph:
+        loader = pygDataLoader(
+            dataset,
+            batch_size=batch_size,
+        )
+    else:
+        loader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+        )
+    losses = []
+    for batch in loader:
+        if graph:
+            full_inp = batch
+            signal = batch[SIGNAL_PYGBATCHKEY]
+            dataset_index = batch[EXP_PYGBATCHKEY]
+        else:
+            inp, signal, dataset_index = batch
+            full_inp = (inp, dataset_index)
+        loss = evaler(
+            inp=full_inp,
+            reference=signal,
+            loss_param=loss_param,
+        ).item()
+        losses.append(loss)
+    return sequence_mean(losses)
 
 
 def train_tunable_model(
@@ -188,6 +211,7 @@ def train_tunable_model(
     grad_clip: float = 1e3,
     progress_bar: bool = False,
     patience: int = 50,
+    graph: bool = False,
 ) -> Tuple[int, float, pd.DataFrame]:
 
     loss_param_schedule = list(
@@ -196,7 +220,7 @@ def train_tunable_model(
         )
     )
 
-    wrapped_model = _MHTunerWrapper(model)
+    wrapped_model = _MHTunerWrapper(model, graph=graph)
 
     train_stepper = create_parameterized_train_stepper(
         model=wrapped_model,
@@ -217,9 +241,14 @@ def train_tunable_model(
         compile_mode=compile_mode,
     )
 
-    train_dataloader = DataLoader(
-        train_dataset, batch_size=train_batch_size, shuffle=True
-    )
+    if graph:
+        train_dataloader = pygDataLoader(
+            train_dataset, batch_size=train_batch_size, shuffle=True
+        )
+    else:
+        train_dataloader = DataLoader(
+            train_dataset, batch_size=train_batch_size, shuffle=True
+        )
 
     patience_counter: Patience[float] = Patience()
 
@@ -234,10 +263,15 @@ def train_tunable_model(
             loss_param = loss_param_schedule.pop(0)
         except IndexError:
             pass
-        for seq, signal, dataset_index in train_dataloader:
-            train_stepper(
-                inp=(seq, dataset_index), reference=signal, loss_param=loss_param
-            )
+        for batch in train_dataloader:
+            if graph:
+                full_inp = batch
+                signal = batch["y"]
+            else:
+                inp, signal, dataset_index = batch
+                full_inp = (inp, dataset_index)
+            train_stepper(inp=full_inp, reference=signal, loss_param=loss_param)
+
         if epoch % report_stride == 0:
             with torch.no_grad():
                 epoch_train_loss = _eval_dataset(
@@ -245,12 +279,14 @@ def train_tunable_model(
                     dataset=train_dataset,
                     batch_size=reporting_batch_size,
                     loss_param=loss_param,
+                    graph=graph,
                 )
                 epoch_val_loss = _eval_dataset(
                     evaler=evaler,
                     dataset=valid_dataset,
                     batch_size=reporting_batch_size,
                     loss_param=loss_param,
+                    graph=graph,
                 )
             record_epochs.append(epoch)
             records.append((epoch_train_loss, epoch_val_loss, loss_param.item()))

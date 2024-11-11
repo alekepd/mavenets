@@ -1,13 +1,16 @@
 """Callables to load datasets."""
 
-from typing import Final, Tuple, Iterable, Literal, Union
+from typing import Final, Tuple, Iterable, Literal, Union, Dict
 import pandas as pd  # type: ignore
 from torch.utils.data import TensorDataset
-from torch import tensor, float32, int32, int64
+from torch import Tensor, tensor, float32, int32, int64
 from torch.nn.functional import one_hot
+from torch.utils.data import Dataset
 from pathlib import Path
-from .spec import DATA_SPECS, DataSpec, resolve_dataspec
+from torch_geometric.data import Data  # type: ignore
+from .spec import DATA_SPECS, DataSpec, resolve_dataspec, SARSCOV2_FILENAME
 from .featurize import IntEncoder, get_alphabet
+from .graph import get_graph
 
 # column names for labeling loaded csvs.
 CSV_RID_CNAME: Final = "seq_id"
@@ -39,6 +42,43 @@ BASE_ALPHA: Final = [
 ]
 
 
+class DNSEDataset(Dataset):
+    """Transforms a TensorDataset into a PYG Dataset.
+
+    Dynamic Nodes Static Edges
+    """
+
+    def __init__(
+        self,
+        edge_attr: Tensor,
+        edge_index: Tensor,
+        **kwargs,
+    ) -> None:
+        super().__init__()
+        self.edge_feat = edge_attr
+        self.edge_index = edge_index
+        if len(kwargs) == 0:
+            raise ValueError("Must provide at least one field tensor.")
+        self.tensor_dict: Dict[str, Tensor] = kwargs
+
+    def __len__(self) -> int:
+        """Return number of data pairs."""
+        first_item = next(iter(self.tensor_dict.values()))
+        return first_item.shape[0]
+
+    def __getitem__(self, idx: int) -> Data:
+        additional_fields = {}
+        for key, value in self.tensor_dict.items():
+            additional_fields[key] = value[idx]
+        data = Data(
+            **additional_fields,
+            edge_attr=self.edge_feat,
+            edge_index=self.edge_index,
+        )
+
+        return data
+
+
 # applies column names solely based on column order.
 def _csv_read(f: Path) -> pd.DataFrame:
     frame = pd.read_csv(f, header=None)
@@ -51,8 +91,12 @@ def get_datasets(
     train_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = None,
     val_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = None,
     feat_type: Literal["integer", "onehot"] = "integer",
+    graph: bool = False,
+    graph_sequence_window_size: int = 10,
+    n_distance_feats: int = 10,
+    graph_distance_cutoff: float = 2.5,
     parent_path: Path = Path(),
-) -> Tuple[TensorDataset, TensorDataset]:
+) -> Tuple[Dataset, Dataset]:
     """Load and process data.
 
     Arguments:
@@ -73,6 +117,8 @@ def get_datasets(
         the residue type. "onehot" creates a 0-1 vector that is longer with the same
         information (see torch.nn.functional.one_hot). Note that the one hot is
         converted to the float32 dtype.
+    graph:
+
     parent_path:
         Path object specifying where to look for csv files.
 
@@ -143,11 +189,34 @@ def get_datasets(
     valid_signal = tensor(valid_frame.loc[:, SIGNAL_CNAME].to_numpy(), dtype=float32)
     valid_dset_id = tensor(valid_frame.loc[:, EXPERIMENT_CNAME].to_numpy(), dtype=int32)
 
-    train_dataset = TensorDataset(
-        train_encoded.to(device), train_signal.to(device), train_dset_id.to(device)
-    )
-    valid_dataset = TensorDataset(
-        valid_encoded.to(device), valid_signal.to(device), valid_dset_id.to(device)
-    )
+    if graph:
+        edge_labels, edge_features = get_graph(
+            structure=str(parent_path / SARSCOV2_FILENAME),
+            max_cutoff=graph_distance_cutoff,
+            min_cutoff=0.0,
+            num_distance_features=n_distance_feats,
+            window_size=graph_sequence_window_size,
+        )
+        train_dataset: Dataset = DNSEDataset(
+            edge_attr=edge_features.to(device),
+            edge_index=edge_labels.to(device),
+            x=train_encoded.to(device),
+            y=train_signal.to(device),
+            experiment=train_dset_id.to(device),
+        )
+        valid_dataset: Dataset = DNSEDataset(
+            edge_attr=edge_features.to(device),
+            edge_index=edge_labels.to(device),
+            x=valid_encoded.to(device),
+            y=valid_signal.to(device),
+            experiment=valid_dset_id.to(device),
+        )
+    else:
+        train_dataset = TensorDataset(
+            train_encoded.to(device), train_signal.to(device), train_dset_id.to(device)
+        )
+        valid_dataset = TensorDataset(
+            valid_encoded.to(device), valid_signal.to(device), valid_dset_id.to(device)
+        )
 
     return train_dataset, valid_dataset

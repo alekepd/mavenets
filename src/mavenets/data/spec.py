@@ -6,6 +6,9 @@ from itertools import chain
 from pathlib import Path
 
 
+SARSCOV2_FILENAME: Final = Path("RBD_amaro.pdb")
+
+
 @dataclass(order=True, frozen=True)
 class DataSpec:
     """Class for keeping track of an item in inventory."""
@@ -72,7 +75,7 @@ MAX_DATASPEC_INDEX: Final = max(x.index for x in DATA_SPECS)
 
 def resolve_dataspec(identifier: Union[str, int, DataSpec]) -> DataSpec:
     """Return data specification matching name or index."""
-    if isinstance(identifier,DataSpec):
+    if isinstance(identifier, DataSpec):
         return identifier
     for x in DATA_SPECS:
         if identifier == x.name or identifier == x.index:

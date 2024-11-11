@@ -90,7 +90,7 @@ def featurize_distances(
 
 
 def get_graph(
-    structure: md.Trajectory,
+    structure: str,
     max_cutoff: float,
     min_cutoff: float,
     num_distance_features: int,
@@ -114,7 +114,7 @@ def get_graph(
     Arguments:
     ---------
     structure:
-        mdtraj.Trajectory containing an atomistic molecular configuration.
+        File readably by mdtraj containing an atomistic molecular configuration.
     scheme:
         Passed to mdtraj via .compute_contacts to determine the distance
         between each residues
@@ -170,7 +170,7 @@ def get_graph(
             if i == j:
                 continue
             use_edge = False
-            feat = torch.zeros(num_distance_features)
+            feat = torch.zeros(num_distance_features + num_window_features)
             # We define sequence features if we are close enough
             # along primary sequence
             if np.abs(i - j) <= window_size:
@@ -201,7 +201,7 @@ def get_graph(
     return tensor_edges, tensor_edge_feats
 
 
-class GraphDataReader(Dataset):
+class LegacyGraphDataReader(Dataset):
     """Dataset for serving structure graphs.
 
     Serves one-hot versions of a subset of residues (positions 5-187 inclusive).
