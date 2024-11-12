@@ -1,5 +1,6 @@
 """Specialzed tools for data loading for graph networks."""
 from typing import Final, Literal, Tuple, List
+from warnings import warn
 import numpy as np
 import itertools
 from torch.utils.data import Dataset
@@ -114,17 +115,18 @@ def get_graph(
     Arguments:
     ---------
     structure:
-        File readably by mdtraj containing an atomistic molecular configuration.
+        File descriptor readable by mdtraj containing an atomistic molecular
+        configuration. Only the first frame is used.
     scheme:
         Passed to mdtraj via .compute_contacts to determine the distance
-        between each residues
+        between each residues.
     max_cutoff:
         If two residues are separated by a distance between min_cutoff
-        and max_cutoff, the are given a distance feature. The *_cutoff
+        and max_cutoff, they are given a distance feature. The *_cutoff
         variables also determine the radial basis function grid used to
         for distance featurization.
     min_cutoff:
-        See max_cutoff
+        See max_cutoff.
     num_distance_features:
         Distance are featurized with the corresponding distance transformed
         into a vector feature with this many elements.
@@ -202,9 +204,14 @@ def get_graph(
 
 
 class LegacyGraphDataReader(Dataset):
-    """Dataset for serving structure graphs.
+    """Dataset for serving structure SARS-COV molecule graphs.
 
-    Serves one-hot versions of a subset of residues (positions 5-187 inclusive).
+    Serves one-hot versions of a subset of residues (positions 5-187 inclusive). This
+    class contains hardcoded behavior and inconsistent usage of arguments. It is
+    retained here to support legacy code.
+
+    A single graph topology is created and served for all items. This graph is created
+    using both sequence and distance information. See get_graph for details.
     """
 
     def __init__(
@@ -217,7 +224,31 @@ class LegacyGraphDataReader(Dataset):
         flattened: bool = False,
         graph_cutoff: float = DEFAULT_CUT,
     ) -> None:
-        """Read all data from disk, create the structure graph, and store options."""
+        """Read all data from disk, create the structure graph, and store options.
+
+        Arguments:
+        ---------
+        base_dir:
+            CSV files are searched for in a subdirectory called "raw" in this directory.
+        structure_file:
+            Filename of topology-containing input to mdtraj.load used to define the
+            3D distances for graph creation.
+        num_distance_features:
+            Size of vectorial featurization to use to process 3D distance information.
+            Note that this is not the size of the overall edge features, as they contain
+            both 3D and sequence distance information.
+        window_size:
+            Primary sequence distance cutoff used for sequence-based graph creation.
+        dataset:
+            A string used to define the name of the CSV to read for sequence and
+            target value information.
+        flattened:
+            Stored as an same-named attribute, but unused.
+        graph_cutoff:
+            3D Distance cutoff used for structure-based graph creation.
+
+        """
+        warn("Using deprecated data reader for graphs.", stacklevel=1)
         super().__init__()
         self.x = self._get_data(base_dir, dataset)[0]
         self.y = self._get_data(base_dir, dataset)[1]
@@ -235,7 +266,25 @@ class LegacyGraphDataReader(Dataset):
         self.edge_feat = graph[1]
 
     def _get_data(self, base_dir: str, dataset: str) -> Tuple[np.ndarray, np.ndarray]:
-        """Read csv data and return as numpy arrays."""
+        """Read csv data and return as numpy arrays.
+
+        Note:
+        ----
+        csv location is partially hardcoded as "{base_dir}/raw/{dataset}_data_short.csv"
+
+        Arguments:
+        ---------
+        base_dir:
+            Parent directory for finding csv. CSVs are searched for in the "raw"
+            subdirectory.
+        dataset:
+            string used to define name of csv to read.
+
+        Returns:
+        -------
+        2-Tuple, first entry is sequences, second is target signal.
+
+        """
         df = pd.read_csv(
             "{}/raw/{}_data_short.csv".format(base_dir, dataset), header=None
         )
