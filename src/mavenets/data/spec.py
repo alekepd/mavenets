@@ -1,4 +1,9 @@
-"""Contains descriptions of all considered datasets."""
+"""Contains descriptions of all considered datasets.
+
+Objects here allow data files to be associated with experiment IDs
+and other data attributes. Routines are provided to conveniently 
+query available files.
+"""
 
 from typing import Final, Union
 from dataclasses import dataclass, asdict
@@ -6,17 +11,19 @@ from itertools import chain
 from pathlib import Path
 
 
+# this file only contains structure for residues 5-187 inclusive
+# this is not yet correctly taken into account in some places.
 SARSCOV2_FILENAME: Final = Path("RBD_amaro.pdb")
 
 
 @dataclass(order=True, frozen=True)
 class DataSpec:
-    """Class for keeping track of an item in inventory."""
+    """Describes all files associated with a given experiment."""
 
-    name: str
-    train_filename: Path
-    valid_filename: Path
-    index: int
+    name: str  # convienient name labeling the experiment.
+    train_filename: Path  # local path of train csv
+    valid_filename: Path  # local path of valid csv
+    index: int  # positive unique labeling experiment.
 
 
 DATA_SPECS: Final = [
@@ -74,7 +81,20 @@ MAX_DATASPEC_INDEX: Final = max(x.index for x in DATA_SPECS)
 
 
 def resolve_dataspec(identifier: Union[str, int, DataSpec]) -> DataSpec:
-    """Return data specification matching name or index."""
+    """Return data specification matching name or index.
+
+    Arguments:
+    ---------
+    identifier:
+        Either a string, integer, or Dataspec. If a Dataspec, directly
+        returned. Otherwise, matched against all possible index and
+        name fields of stored experiments.
+
+    Returns:
+    -------
+    Dataspec
+
+    """
     if isinstance(identifier, DataSpec):
         return identifier
     for x in DATA_SPECS:
@@ -84,12 +104,17 @@ def resolve_dataspec(identifier: Union[str, int, DataSpec]) -> DataSpec:
         raise ValueError("No matching DataSpec found.")
 
 
-# check to make sure no fields are duplicated anywhere
-_lists = [list(asdict(x).values()) for x in DATA_SPECS]
-_all = list(chain.from_iterable(_lists))
-assert len(_all) == len(set(_all))
-del _lists
-del _all
+def _sanity_check() -> None:
+    """Perform basic checks to avoid hard-to-find typographical errors."""
+    # check to make sure no fields are duplicated anywhere
+    _lists = [list(asdict(x).values()) for x in DATA_SPECS]
+    _all = list(chain.from_iterable(_lists))
+    assert len(_all) == len(set(_all))
+    del _lists
+    del _all
 
-# check to make sure that all index ints are >= 0
-assert all(x.index >= 0 for x in DATA_SPECS)
+    # check to make sure that all index ints are >= 0
+    assert all(x.index >= 0 for x in DATA_SPECS)
+
+
+_sanity_check()
