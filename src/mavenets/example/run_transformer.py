@@ -28,6 +28,8 @@ def test_transformer(
     fan_size: int = 16,
     mha_drop: float = 0.2,
     transformer_mlp_drop: float = 0.2,
+    n_final_layers: int = 0,
+    final_dropout: float = 0.0,
 ) -> pd.DataFrame:
     """Train model and evaluate."""
     # these two seem to be locked together
@@ -41,6 +43,8 @@ def test_transformer(
         n_heads=n_heads,
         block_mlp_dropout=transformer_mlp_drop,
         block_mha_dropout=mha_drop,
+        n_final_layers=n_final_layers,
+        final_dropout=final_dropout,
     )
     model = SharedFanTuner(underlying_model, n_heads=8, fan_size=fan_size).to(DEVICE)
     opter = torch.optim.AdamW(
@@ -88,47 +92,20 @@ def weight_scan() -> None:
 
 def scan() -> None:
     WEIGHT_DECAY: Final = 0.005
-    N_BLOCKS_AND_N_HEADS_AND_EMBEDDING_SIZE_AND_DROPS: Final = [
-        (5, 4, 32, 0.2, 0.2),
-        (5, 4, 32, 0.2, 0.1),
-        (5, 4, 32, 0.1, 0.2),
-        (5, 4, 32, 0.1, 0.1),
-        (5, 4, 32, 0.05, 0.1),
-        (5, 4, 32, 0.1, 0.05),
-        (5, 4, 32, 0.05, 0.05),
-        (5, 4, 32, 0.0, 0.05),
-        (5, 4, 32, 0.05, 0.0),
-        (5, 4, 32, 0.0, 0.0),
-        (5, 4, 64, 0.2, 0.2),
-        (5, 4, 64, 0.2, 0.1),
-        (5, 4, 64, 0.1, 0.2),
-        (5, 4, 64, 0.1, 0.1),
-        (5, 4, 64, 0.05, 0.1),
-        (5, 4, 64, 0.1, 0.05),
-        (5, 4, 64, 0.05, 0.05),
-        (5, 4, 64, 0.0, 0.05),
-        (5, 4, 64, 0.05, 0.0),
-        (5, 4, 64, 0.0, 0.0),
-        (5, 8, 32, 0.2, 0.2),
-        (5, 8, 32, 0.2, 0.1),
-        (5, 8, 32, 0.1, 0.2),
-        (5, 8, 32, 0.1, 0.1),
-        (5, 8, 32, 0.05, 0.1),
-        (5, 8, 32, 0.1, 0.05),
-        (5, 8, 32, 0.05, 0.05),
-        (5, 8, 32, 0.0, 0.05),
-        (5, 8, 32, 0.05, 0.0),
-        (5, 8, 32, 0.0, 0.0),
-        (5, 8, 64, 0.2, 0.2),
-        (5, 8, 64, 0.2, 0.1),
-        (5, 8, 64, 0.1, 0.2),
-        (5, 8, 64, 0.1, 0.1),
-        (5, 8, 64, 0.05, 0.1),
-        (5, 8, 64, 0.1, 0.05),
-        (5, 8, 64, 0.05, 0.05),
-        (5, 8, 64, 0.0, 0.05),
-        (5, 8, 64, 0.05, 0.0),
-        (5, 8, 64, 0.0, 0.0),
+    FINAL_DROPOUT: Final = 0.3
+    SCAN_PARAMS: Final = [
+        (5, 4, 32, 0.2, 0.1, 1),
+        (5, 4, 32, 0.2, 0.1, 2),
+        (5, 4, 32, 0.2, 0.1, 0),
+        (4, 4, 32, 0.2, 0.1, 1),
+        (4, 4, 32, 0.2, 0.1, 2),
+        (4, 4, 32, 0.2, 0.1, 0),
+        (4, 8, 32, 0.2, 0.1, 1),
+        (4, 8, 32, 0.2, 0.1, 2),
+        (4, 8, 32, 0.2, 0.1, 0),
+        (5, 4, 32, 0.1, 0.05, 1),
+        (5, 4, 32, 0.1, 0.05, 2),
+        (5, 4, 32, 0.1, 0.05, 0),
     ]
     for (
         n_blocks,
@@ -136,7 +113,8 @@ def scan() -> None:
         emb_size,
         mha_drop,
         mlp_drop,
-    ) in N_BLOCKS_AND_N_HEADS_AND_EMBEDDING_SIZE_AND_DROPS:
+        n_final_layers,
+    ) in SCAN_PARAMS:
         epoch, val, table = test_transformer(
             n_blocks=n_blocks,
             n_heads=n_heads,
@@ -144,12 +122,28 @@ def scan() -> None:
             weight_decay=WEIGHT_DECAY,
             mha_drop=mha_drop,
             transformer_mlp_drop=mlp_drop,
+            n_final_layers=n_final_layers,
+            final_dropout=FINAL_DROPOUT,
         )
         print(
-            n_blocks, n_heads, emb_size, WEIGHT_DECAY, mlp_drop, mha_drop, round(val, 3)
+            n_blocks,
+            n_heads,
+            emb_size,
+            WEIGHT_DECAY,
+            mlp_drop,
+            mha_drop,
+            n_final_layers,
+            round(val, 3),
         )
-        name = "b{}_h{}_e{}_wdecay{}_mlpdrop{}_mhadrop{}.csv".format(
-            n_blocks, n_heads, emb_size, WEIGHT_DECAY, mlp_drop, mha_drop
+        name = "b{}_h{}_e{}_wdecay{}_mlpdrop{}_mhadrop{}_flayers{}_fdrop{}.csv".format(
+            n_blocks,
+            n_heads,
+            emb_size,
+            WEIGHT_DECAY,
+            mlp_drop,
+            mha_drop,
+            n_final_layers,
+            FINAL_DROPOUT,
         )
         table.to_csv(name)
 
