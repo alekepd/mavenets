@@ -79,6 +79,29 @@ class ELULinear(nn.Module):
 
 
 class FFLayer(nn.Module):
+    """Single feed forward layer.
+
+    Supports dropout, input layer-norm, and residual connections. Layer norm is called
+    immediately on input before linear processing. Transformations are applied as:
+
+                  <input>
+                     |
+                     +-------------+
+                     |             |
+               [ layer norm ]      |
+                     |             |
+                 [ linear ]        |
+                     |             | (residual)
+               [ activation ]      |
+                     |             |
+                [ dropout ]        |
+                     |             |
+                     +-------------+
+                     |
+                 <output>
+
+    """
+
     def __init__(
         self,
         in_size: int,
@@ -87,11 +110,37 @@ class FFLayer(nn.Module):
         residual_connection: bool = False,
         activation_class: Callable[[], nn.Module] = nn.LeakyReLU,
         pre_layer_norm: bool = False,
-        dropout: float = 0.0
+        dropout: float = 0.0,
     ) -> None:
+        """Store arguments and initialize layers.
+
+        Arguments:
+        ---------
+        in_size:
+            Size of input.
+        out_size:
+            Size of output.
+        bias:
+            Whether to include a bias term in the linear transformation.
+        residual_connection:
+            Whether to use a residual connection. See class description.
+        activation_class:
+            Callable that returns an activation function (not an activation function
+            itself, likely a class).
+        pre_layer_norm:
+            Whether to apply layer normalization on input as a first step.
+        dropout:
+            Whether to use dropout either right before the residual connection,
+            or if no such connection is used, as a terminal step.
+
+        """
         super().__init__()
         self.affine = nn.Linear(in_size, out_size, bias=bias)
         self.activation = activation_class()
+        if residual_connection and in_size != out_size:
+            raise ValueError(
+                "Cannot create a residual connection when in_size and out_size differ."
+            )
         self.residual_connection = residual_connection
         self.dropout = nn.Dropout(dropout)
         if pre_layer_norm:
@@ -102,6 +151,7 @@ class FFLayer(nn.Module):
             self.pre_layer_norm = _identity
 
     def forward(self, inp: torch.Tensor) -> torch.Tensor:
+        """Apply layers and perform residual_connection if specified."""
         proc = self.pre_layer_norm(inp)
         proc = self.affine(proc)
         proc = self.activation(proc)
