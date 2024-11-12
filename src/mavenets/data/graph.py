@@ -34,15 +34,19 @@ AMINO_ACIDS: Final = np.asarray(
     ]
 )
 
-DEFAULT_CUT: Final = 1.5
-DEFAULT_GAIN: Final = 75.0
-
 
 def onehot_embed(sequence: np.ndarray) -> np.ndarray:
     """Featurize letter-sequence into one-hot representation.
 
     If input array is of shape (length,)Returned array is of shape (length,onehot_size).
     """
+    warn(
+        (
+            "Using legacy one-hot encoder. one-hot positions may differ from"
+            "the non-legacy code."
+        ),
+        stacklevel=1,
+    )
     return np.array([AMINO_ACIDS == s for s in sequence]).astype(np.float32)
 
 
@@ -99,7 +103,7 @@ def get_graph(
     scheme: Literal[
         "ca", "closest", "closest-heavy", "sidechain", "sidechain-heavy"
     ] = "ca",
-    gain: float = DEFAULT_GAIN,
+    gain: float = 75.0,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Create a distance- and sequence- based graph from a molecular structure.
 
@@ -222,7 +226,7 @@ class LegacyGraphDataReader(Dataset):
         window_size: int,
         dataset: Literal["train", "test", "valid"],
         flattened: bool = False,
-        graph_cutoff: float = DEFAULT_CUT,
+        graph_cutoff: float = 1.5,
     ) -> None:
         """Read all data from disk, create the structure graph, and store options.
 
