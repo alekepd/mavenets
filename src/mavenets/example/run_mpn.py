@@ -1,10 +1,10 @@
-"""Train basic network."""
+"""Train message passing graph network using prediction accuracy."""
 from typing import Final
 import torch
 import pandas as pd  # type: ignore
-from .data import get_datasets
-from .network import SharedFanTuner, GraphNet
-from .tools import train_tunable_model
+from ..data import get_datasets
+from ..network import SharedFanTuner, GraphNet
+from ..tools import train_tunable_model
 
 torch.manual_seed(1337)
 # tensor cores on
@@ -73,9 +73,12 @@ def test_mpn(
 
 
 def scan() -> None:
+    """Test various hyperparmeter combinations.
+
+    Currently, only one model is tested due to poor speed.
+    """
     for _ in range(1):
         epoch, val, table = test_mpn()
-        # table.to_csv(name)
 
 
 if __name__ == "__main__":

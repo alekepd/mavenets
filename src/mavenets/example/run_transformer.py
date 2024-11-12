@@ -1,10 +1,10 @@
-"""Train basic network."""
+"""Train transformer using prediction accuracy."""
 from typing import Final
 import torch
 import pandas as pd  # type: ignore
-from .data import get_datasets
-from .network import SumTransformer, SharedFanTuner
-from .tools import train_tunable_model
+from ..data import get_datasets
+from ..network import SumTransformer, SharedFanTuner
+from ..tools import train_tunable_model
 
 torch.manual_seed(1337)
 # tensor cores on
