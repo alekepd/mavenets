@@ -1,4 +1,4 @@
-"""Callables to load datasets."""
+"""Tools for loading data."""
 
 from typing import Final, Tuple, Iterable, Literal, Union, Dict
 import pandas as pd  # type: ignore
@@ -12,12 +12,14 @@ from .spec import DATA_SPECS, DataSpec, resolve_dataspec, SARSCOV2_FILENAME
 from .featurize import IntEncoder, get_alphabet
 from .graph import get_graph
 
-# column names for labeling loaded csvs.
+# column names for labeling loaded MAVE experiment csvs.
 CSV_RID_CNAME: Final = "seq_id"
 SEQ_CNAME: Final = "sequence"
 SIGNAL_CNAME: Final = "signal"
 EXPERIMENT_CNAME: Final = "experiment_index"
 
+# known amino acid codes. Defining them statically here allows
+# reproduciblity if models are training on datasets lacking chemical coverage.
 BASE_ALPHA: Final = [
     "A",
     "C",
@@ -43,17 +45,49 @@ BASE_ALPHA: Final = [
 
 
 class DNSEDataset(Dataset):
-    """Transforms a TensorDataset into a PYG Dataset.
+    """Graph dataset with identical edges but varying labels.
 
-    Dynamic Nodes Static Edges
+    This creates a dataset with Dynamic Node embeddings and Static Edges. At
+    initialization, connectivity and edge features are given which apply to
+    all served examples. Other tensors are also provided; these tensors
+    are indexed along their first axis to create examples.
+
+    Example:
+    -------
+    ```
+    edge_ind, edge_feat = get_graph(...) # get SARS-COV2 structural graph
+    node_feats = torch.randn(5,201) # generate face node labels for 5 structures
+    d = DNSEDataset(edge_attr=edge_feat,edge_index=edge_ind,x=node_feats)
+    ```
+
+    `d` is now a ataset of 5 examples, each with the same graph but different node
+    features. Note feature information is placed under the attribute name `x`. The
+    name of the attribute is defined by the name of the argument used; multiple
+    tensors may be specified as multiple arguments.
+
     """
 
     def __init__(
         self,
+        /,
         edge_attr: Tensor,
         edge_index: Tensor,
         **kwargs,
     ) -> None:
+        """Store data.
+
+        Arguments are keyword-only.
+
+        Arguments:
+        ---------
+        edge_attr:
+            Tensor of shape (n_edges, n_edge_Feats) coining the features of each edge.
+        edge_index:
+            Tensor of shape (n_edges, 2) containing the start and end of each edge.
+        **kwargs:
+            Tensors which are indexed along their leading axis when serving examples.
+
+        """
         super().__init__()
         self.edge_feat = edge_attr
         self.edge_index = edge_index
@@ -67,9 +101,13 @@ class DNSEDataset(Dataset):
         return first_item.shape[0]
 
     def __getitem__(self, idx: int) -> Data:
+        """Slice each underlying tensor, assemble Data object, serve."""
         additional_fields = {}
         for key, value in self.tensor_dict.items():
+            # Views
             additional_fields[key] = value[idx]
+        # note that batch_based indexing may be affected by the names
+        # of attributes
         data = Data(
             **additional_fields,
             edge_attr=self.edge_feat,
@@ -80,7 +118,14 @@ class DNSEDataset(Dataset):
 
 
 # applies column names solely based on column order.
-def _csv_read(f: Path) -> pd.DataFrame:
+def _mave_csv_read(f: Path) -> pd.DataFrame:
+    """Read csv files of a given format from disk and label columns.
+
+    Format is assumed to be:
+        first column is an identitication number, second column is sequence
+        information, third column is a signal to fit.
+
+    """
     frame = pd.read_csv(f, header=None)
     frame.columns = [CSV_RID_CNAME, SEQ_CNAME, SIGNAL_CNAME]
     return frame
@@ -93,11 +138,16 @@ def get_datasets(
     feat_type: Literal["integer", "onehot"] = "integer",
     graph: bool = False,
     graph_sequence_window_size: int = 10,
-    n_distance_feats: int = 10,
+    graph_n_distance_feats: int = 10,
     graph_distance_cutoff: float = 2.5,
     parent_path: Path = Path(),
 ) -> Tuple[Dataset, Dataset]:
-    """Load and process data.
+    """Load, featurize, and return SARSCOV2 data for training and evaluation.
+
+    Loads target signal and sequences from disk, and if graph is specified reads
+    a file describing the 3d structure of the protein. If graph is True, a Tuple of 
+    two DNSEDataset is returned; else, two TensorDatasets are returned, first being
+    the train data and second the validation data.
 
     Arguments:
     ---------
@@ -118,15 +168,30 @@ def get_datasets(
         information (see torch.nn.functional.one_hot). Note that the one hot is
         converted to the float32 dtype.
     graph:
-
+        If True, returned datasets are DNSEDataset instances based on a
+        structure/sequence graph. Edges are directed and featurized; see graph_* and
+        ..graph.get_graph
+    graph_sequence_window_size:
+        When graph is True, passed to ..graph.get_graph. Defines how close two
+        residues must be in primary sequence to gain a sequence-based
+        connection.
+    graph_n_distance_feats:
+        When graph is True, passed to ..graph.get_graph.  Distance in sequence
+        and 3D space are expanded using a set of radial basis functions. This
+        argument controls the number of basis functions.
+    graph_distance_cutoff:
+        When graph is True, passed to ..graph.get_graph. When two residues are
+        within this distance (in Angstroms), they are connected via a distance-based
+        contact.
     parent_path:
-        Path object specifying where to look for csv files.
+        Path object specifying where to look for csv (and if specified, structure)
+        files.
 
     Returns:
     -------
-    2-Tuple of TensorDatasets on the specified device.
-
-    TensorDatasets return (feat, signal, dataset_index) during iteration.
+    If graph is False, 2-Tuple of TensorDatasets (train, val) on the specified device.
+    TensorDatasets return (feat, signal, dataset_index) during iteration. Else,
+    pair of DMSE datasets of the same data coupled with a structure graph.
 
     """
     if feat_type not in ("integer", "onehot"):
@@ -142,7 +207,7 @@ def get_datasets(
 
     # load training datasets, record index
     for sp in (resolve_dataspec(x) for x in train_specs):
-        tf = _csv_read(parent_path / sp.train_filename)
+        tf = _mave_csv_read(parent_path / sp.train_filename)
         tf[EXPERIMENT_CNAME] = sp.index
         train_frames.append(tf)
 
@@ -152,7 +217,7 @@ def get_datasets(
 
     # load validation datasets, record index
     for sp in (resolve_dataspec(x) for x in val_specs):
-        vf = _csv_read(parent_path / sp.valid_filename)
+        vf = _mave_csv_read(parent_path / sp.valid_filename)
         vf[EXPERIMENT_CNAME] = sp.index
         valid_frames.append(vf)
 
@@ -194,7 +259,7 @@ def get_datasets(
             structure=str(parent_path / SARSCOV2_FILENAME),
             max_cutoff=graph_distance_cutoff,
             min_cutoff=0.0,
-            num_distance_features=n_distance_feats,
+            num_distance_features=graph_n_distance_feats,
             window_size=graph_sequence_window_size,
         )
         train_dataset: Dataset = DNSEDataset(
