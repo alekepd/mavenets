@@ -73,6 +73,10 @@ def test_transformer(
 
 
 def weight_scan() -> None:
+    """Scan over various weight decay options.
+
+    Prints results and writes csv as it runs.
+    """
     WEIGHT_DECAYS: Final = [0.02, 0.05, 0.1]
     N_BLOCKS: Final = 4
     N_HEADS: Final = 8
@@ -91,6 +95,10 @@ def weight_scan() -> None:
 
 
 def scan() -> None:
+    """Scan over various hyperparameter choices.
+
+    Prints results and writes csv as it runs.
+    """
     WEIGHT_DECAY: Final = 0.005
     FINAL_DROPOUT: Final = 0.3
     SCAN_PARAMS: Final = [
