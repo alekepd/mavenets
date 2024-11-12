@@ -1,6 +1,6 @@
 """Message passing neural network."""
 
-from typing import Final, Any
+from typing import Final, Any, Callable
 import torch
 import torch.nn as nn
 from torch_scatter import scatter, scatter_mean  # type: ignore
@@ -11,28 +11,70 @@ from ..data import LegacyGraphDataReader
 
 
 class Message(nn.Module):
-    """Performs a single message passing step.
+    """Perform a single message passing step.
 
-    Messages are computing using a MLP with two hidden layers.
+    Messages are computing using a fully connected network with two hidden layers.
     """
 
     def __init__(
-        self, num_nodes: int, num_features: int, num_hidden: int, num_edge_feats: int
+        self,
+        n_nodes: int,
+        n_features: int,
+        hidden_size: int,
+        n_edge_feats: int,
+        activation_class: Callable[[], nn.Module] = nn.ReLU,
     ) -> None:
+        """Store arguments.
+
+        Arguments:
+        ---------
+        n_nodes:
+            Number of graph nodes expected input. This option is store in an attribute,
+            but does not change behavior. Note that batches do not have to have this
+            many effect nodes.
+        n_features:
+            Dimensionality of node features.
+        hidden_size:
+            Size of hidden layers in fully connected network.
+        n_edge_feats:
+            Dimensionality of edge features.
+        activation_class:
+            Callable that returns an activation function (not an activation function
+            itself, likely a class).
+
+        """
         super().__init__()
-        self.num_nodes = num_nodes
-        self.tot_num_features = num_features * 2 + num_edge_feats
+        self.n_nodes = n_nodes
+        self.tot_n_features = n_features * 2 + n_edge_feats
         self.message = nn.Sequential(
-            nn.Linear(self.tot_num_features, num_hidden),
-            nn.ReLU(),
-            nn.Linear(num_hidden, num_hidden),
-            nn.ReLU(),
-            nn.Linear(num_hidden, num_features),
+            nn.Linear(self.tot_n_features, hidden_size),
+            activation_class(),
+            nn.Linear(hidden_size, hidden_size),
+            activation_class(),
+            nn.Linear(hidden_size, n_features),
         )
 
     def forward(
         self, x: torch.Tensor, edge_index: torch.Tensor, edge_feat: torch.Tensor
     ) -> torch.Tensor:
+        """Pass messages.
+
+        Graph is may be an aggregated graph representing a batch.
+
+        Arguments:
+        ---------
+        x:
+            Tensor of Node embeddings (n_nodes, n_fears)
+        edge_index:
+            Tensor of edge indices (2, n_edges)
+        edge_feat:
+            Tensor of edge features (n_edges, n_edge features)
+
+        Returns:
+        -------
+        Tensor of updated node features.
+
+        """
         # nodes -> (num_nodes, num_feats)
         # edges -> (2, num_edges)
 
@@ -41,16 +83,21 @@ class Message(nn.Module):
         source = edge_index[0]
         target = edge_index[1]
 
+        # cat the node embeddings and edge feature of the source and target nodes
         # shape ->  (batch * edge_idx, feat)
         edge = torch.cat([x[source], x[target], edge_feat], dim=-1)
 
-        # concatenate the edge features to `edge`
-
+        # predict message from catted features
         # shape -> (batch, num_edges = (num_nodes * num_nodes), num_feats)
         message = self.message(edge)
+
         update = scatter(
-            #message, target, reduce="mean", dim=0, dim_size=target.max() + 1
-            message, target, reduce="mean", dim=0, dim_size=x.shape[0]
+            # message, target, reduce="mean", dim=0, dim_size=target.max() + 1
+            message,
+            target,
+            reduce="mean",
+            dim=0,
+            dim_size=x.shape[0],
         )
 
         x = res + update
@@ -66,42 +113,42 @@ class GraphNet(nn.Module):
 
     def __init__(
         self,
-        num_nodes: int,
-        num_features: int,
-        num_hidden: int,
-        num_messages: int,
-        num_edge_feats: int,
+        n_nodes: int,
+        n_features: int,
+        n_hidden: int,
+        n_messages: int,
+        n_edge_feats: int,
     ) -> None:
         """Initialize layers.
 
         Arguments:
         ---------
-        num_nodes:
+        n_nodes:
             Number of nodes in graphs.
-        num_features:
+        n_features:
             Dimensionality of node features.
-        num_hidden:
+        n_hidden:
             Number of hidden layers in each message passing step (see Message).
-        num_messages:
+        n_messages:
             Number of message passing steps.
-        num_edge_feats:
+        n_edge_feats:
             Dimensionality of edge features.
 
         """
         super().__init__()
         self.messages = nn.ModuleList(
             [
-                Message(num_nodes, num_features, num_hidden, num_edge_feats)
-                for _ in range(num_messages)
+                Message(n_nodes, n_features, n_hidden, n_edge_feats)
+                for _ in range(n_messages)
             ]
         )
         self.reduction = nn.Sequential(
-            einops_torch.Rearrange("(b n) f->b (n f)", n=num_nodes),
-            nn.Linear(num_nodes * num_features, 1),
+            einops_torch.Rearrange("(b n) f->b (n f)", n=n_nodes),
+            nn.Linear(n_nodes * n_features, 1),
         )
 
     def forward(self, data: Data) -> torch.Tensor:
-        """Predict on batch of graphs."""
+        """Perform message passing on input and average output."""
         x, edge_index, edge_feat = data.x, data.edge_index, data.edge_attr
         for message in self.messages:
             x = message(x, edge_index, edge_feat)
@@ -133,15 +180,13 @@ def _legacy_example() -> Any:
     # unused -> LR: Final = 1e-4
     # unused -> NUM_EPOCHS: Final = 300
 
-    DEVICE: Final = "cuda" if torch.cuda.is_available() else "cpu"
-
     train_data, test_data, valid_data = [
         LegacyGraphDataReader(
             base_dir=BASE_DIR,
             structure_file=STRUCTURE_FILE,
             num_distance_features=NUM_DISTANCE_FEATS,
             window_size=WINDOW_SIZE,
-            dataset=dataset, #type: ignore
+            dataset=dataset,  # type: ignore
             flattened=True,
         )
         for dataset in ("train", "test", "valid")
@@ -151,8 +196,6 @@ def _legacy_example() -> Any:
         for data in (train_data, test_data, valid_data)
     ]
 
-    model = GraphNet(
-        201, NUM_FEATURES, NUM_HIDDEN, NUM_MESSAGES, NUM_EDGE_FEATS
-    )
+    model = GraphNet(NUM_NODES, NUM_FEATURES, NUM_HIDDEN, NUM_MESSAGES, NUM_EDGE_FEATS)
 
     return model, train_data, train_dl
