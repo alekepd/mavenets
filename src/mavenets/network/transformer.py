@@ -26,9 +26,9 @@ class SumTransformer(nn.Module):
                             |
                         [Block()] * N
                             |
-               [ [token1], ... [token n] ]
+               [ [token 1], ... [token n] ]
                      |      |      |
-                 <W(.)+b>  ...  <W(.)+b>
+                 [ final ]...   [ final ]
                      |      |      |
                [    E_1,   ...    E_n    ]
                      |      |      |
@@ -36,7 +36,8 @@ class SumTransformer(nn.Module):
                             |
                          <output>
 
-    where <W(.) +b> is a single shared linear transformation predicting a scalar.
+    where [final] is either a single shared linear transformation predicting a scalar,
+    or a series or of FFN networks with residual connections and dropout.
 
     Input is expected to be of the form (batch_size, n_token, n_feature). In the case of
     amino acids, the feature is probably best a integer corresponding to the amino acid
@@ -80,6 +81,15 @@ class SumTransformer(nn.Module):
             Dropout in block attention. See Block.
         block_activation_class:
             Callable that returns activation functions for created networks; passed to
+        n_final_layers:
+            Number of final layers to used when mapping transformed embeddings
+            to scalar contributions. If zero, a linear layer is used to map
+            each embedding to a sum contribution. If positive, an FFN with
+            residual connections refines the embedding before the final linear
+            step. Transformation is _shared_ across all tokens.
+        final_dropout:
+            Dropout in final layers; only active if n_final_layers positive as it is
+            applied to residual-based refinements.
 
         """
         # hack to round up common alphabet size to a power of two.
