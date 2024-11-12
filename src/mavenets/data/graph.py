@@ -1,4 +1,8 @@
-"""Specialzed tools for data loading for graph networks."""
+"""Specialized tools for data loading for graph networks.
+
+Note that certain classes and functions in this module are deprecated
+and should not be introduced in new code; doing so will raise a warning.
+"""
 from typing import Final, Literal, Tuple, List
 from warnings import warn
 import numpy as np
@@ -9,7 +13,9 @@ import torch
 import pandas as pd  # type: ignore
 import mdtraj as md  # type: ignore
 
-AMINO_ACIDS: Final = np.asarray(
+# this is used instead of the standard alphabet to maintain compatibility
+# with previous code.
+_LEGACY_BASE_ALPHA: Final = np.asarray(
     [
         "A",
         "C",
@@ -47,7 +53,7 @@ def onehot_embed(sequence: np.ndarray) -> np.ndarray:
         ),
         stacklevel=1,
     )
-    return np.array([AMINO_ACIDS == s for s in sequence]).astype(np.float32)
+    return np.array([_LEGACY_BASE_ALPHA == s for s in sequence]).astype(np.float32)
 
 
 def featurize_distances(
