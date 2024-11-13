@@ -110,6 +110,7 @@ def get_graph(
         "ca", "closest", "closest-heavy", "sidechain", "sidechain-heavy"
     ] = "ca",
     gain: float = 75.0,
+    node_offset: int = 0,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Create a distance- and sequence- based graph from a molecular structure.
 
@@ -147,6 +148,10 @@ def get_graph(
     gain:
         Sharpness of the radial basis functions used in featurization.
         See featurize_distances.
+    node_offset:
+        Shifts all node_indices by this factor. This is useful if the
+        pdb only contains information on a subset of available sequence
+        amino acids.
 
 
     Returns:
@@ -206,7 +211,7 @@ def get_graph(
                 )
             # if neither class of feature is present, dont include the edge.
             if use_edge:
-                edges.append((i, j))
+                edges.append((i + node_offset, j + node_offset))
                 edge_feats.append(feat)
     tensor_edges = torch.tensor(np.transpose(edges))
     tensor_edge_feats = torch.stack(edge_feats, dim=0)
