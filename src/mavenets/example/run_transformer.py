@@ -1,5 +1,5 @@
 """Train transformer using prediction accuracy."""
-from typing import Final
+from typing import Final, Union
 import torch
 import pandas as pd  # type: ignore
 from ..data import get_datasets
@@ -30,7 +30,7 @@ def test_transformer(
     transformer_mlp_drop: float = 0.2,
     n_final_layers: int = 0,
     final_dropout: float = 0.0,
-) -> pd.DataFrame:
+) -> Union[int,float,pd.DataFrame]:
     """Train model and evaluate."""
     # these two seem to be locked together
 
