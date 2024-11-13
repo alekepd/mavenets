@@ -315,6 +315,8 @@ class MLP(nn.Module):
         out_size: int,
         hidden_sizes: Sequence[int],
         activation_class: Callable[[], nn.Module] = nn.ReLU,
+        pre_flatten: bool = False,
+        post_squeeze: bool = False,
     ) -> None:
         """Create layers.
 
@@ -329,10 +331,19 @@ class MLP(nn.Module):
         activation_class:
             Callable that returns an activation function (not an activation function
             itself, likely a class).
+        pre_flatten:
+            If True, a nn.Flatten method (with default arguments) is applied before 
+            network calculations.
+        post_squeeze:
+            If True, squeeze is called on the network output. May cause dimensional 
+            differences on size-1 batches.
 
         """
         super().__init__()
+        self.post_squeeze = post_squeeze
         transforms: List[nn.Module] = []
+        if pre_flatten:
+            transforms.append(nn.Flatten())
         current_size = in_size
         # each iteration of this loop creates a linear layer and activation
         # linking between two sizes.
@@ -345,7 +356,11 @@ class MLP(nn.Module):
 
     def forward(self, inp: torch.Tensor) -> torch.Tensor:
         """Evaluate layers."""
-        return self.network(inp)
+        proc = self.network(inp)
+        if self.post_squeeze:
+            return torch.squeeze(proc)
+        else:
+            return proc
 
     @classmethod
     def triangle_network(
