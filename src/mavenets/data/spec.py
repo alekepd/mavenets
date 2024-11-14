@@ -13,7 +13,10 @@ from pathlib import Path
 
 # this file only contains structure for residues 5-187 inclusive
 # this is not yet correctly taken into account in some places.
-SARSCOV2_FILENAME: Final = Path("RBD_amaro.pdb")
+LEGACY_SARSCOV2_FILENAME: Final = Path("RBD_amaro.pdb")
+
+# this has all residues
+SARSCOV2_FILENAME: Final = Path("RBD_7DX5.pdb")
 
 
 @dataclass(order=True, frozen=True)

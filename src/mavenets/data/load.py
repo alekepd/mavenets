@@ -261,7 +261,7 @@ def get_datasets(
             min_cutoff=0.0,
             num_distance_features=graph_n_distance_feats,
             window_size=graph_sequence_window_size,
-            node_offset=5, # the included pdb does not contain the first 5 sites.
+            node_offset=0,
         )
         train_dataset: Dataset = DNSEDataset(
             edge_attr=edge_features.to(device),
