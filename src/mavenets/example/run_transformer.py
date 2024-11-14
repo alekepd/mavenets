@@ -1,8 +1,8 @@
 """Train transformer using prediction accuracy."""
-from typing import Final, Union
+from typing import Final, Tuple
 import torch
 import pandas as pd  # type: ignore
-from ..data import get_datasets
+from ..data import get_datasets, DATA_SPECS
 from ..network import SumTransformer, SharedFanTuner
 from ..tools import train_tunable_model
 
@@ -30,11 +30,18 @@ def test_transformer(
     transformer_mlp_drop: float = 0.2,
     n_final_layers: int = 0,
     final_dropout: float = 0.0,
-) -> Union[int,float,pd.DataFrame]:
+) -> Tuple[int,float,pd.DataFrame]:
     """Train model and evaluate."""
     # these two seem to be locked together
 
     train_dataset, valid_dataset = get_datasets(device=DEVICE)
+
+    report_datasets = {}
+    for spec in DATA_SPECS:
+        _, vdset = get_datasets(
+            train_specs=[spec], val_specs=[spec], device=DEVICE,
+        )
+        report_datasets.update({spec.name: vdset})
 
     underlying_model = SumTransformer(
         alphabet_size=256,
@@ -61,6 +68,7 @@ def test_transformer(
         n_epochs=n_epochs,
         train_dataset=train_dataset,
         valid_dataset=valid_dataset,
+        report_datasets=report_datasets,
         train_batch_size=batch_size,
         reporting_batch_size=eval_batch_size,
         compile=compile,
@@ -100,8 +108,11 @@ def scan() -> None:
     Prints results and writes csv as it runs.
     """
     WEIGHT_DECAY: Final = 0.005
-    FINAL_DROPOUT: Final = 0.3
+    FINAL_DROPOUT: Final = 0.2
     SCAN_PARAMS: Final = [
+        (5, 4, 32, 0.1, 0.05, 1),
+        (5, 4, 32, 0.1, 0.05, 2),
+        (5, 4, 32, 0.1, 0.05, 0),
         (5, 4, 32, 0.2, 0.1, 1),
         (5, 4, 32, 0.2, 0.1, 2),
         (5, 4, 32, 0.2, 0.1, 0),
@@ -111,9 +122,6 @@ def scan() -> None:
         (4, 8, 32, 0.2, 0.1, 1),
         (4, 8, 32, 0.2, 0.1, 2),
         (4, 8, 32, 0.2, 0.1, 0),
-        (5, 4, 32, 0.1, 0.05, 1),
-        (5, 4, 32, 0.1, 0.05, 2),
-        (5, 4, 32, 0.1, 0.05, 0),
     ]
     for (
         n_blocks,

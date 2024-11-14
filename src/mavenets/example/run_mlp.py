@@ -2,7 +2,7 @@
 from typing import Final, List
 import torch
 import pandas as pd  # type: ignore
-from ..data import get_datasets
+from ..data import get_datasets, DATA_SPECS
 from ..network import MLP, SharedFanTuner
 from ..tools import train_tunable_model
 
@@ -26,9 +26,14 @@ def test_mlp(
     fan_size: int = 16,
 ) -> pd.DataFrame:
     """Train model and evaluate."""
-    # these two seem to be locked together
-
     train_dataset, valid_dataset = get_datasets(device=DEVICE, feat_type="onehot")
+
+    report_datasets = {}
+    for spec in DATA_SPECS:
+        _, vdset = get_datasets(
+            train_specs=[spec], val_specs=[spec], device=DEVICE, feat_type="onehot"
+        )
+        report_datasets.update({spec.name: vdset})
 
     underlying_model = MLP(
         in_size=20 * 201,
@@ -52,6 +57,7 @@ def test_mlp(
         n_epochs=n_epochs,
         train_dataset=train_dataset,
         valid_dataset=valid_dataset,
+        report_datasets=report_datasets,
         train_batch_size=batch_size,
         reporting_batch_size=eval_batch_size,
         compile=compile,

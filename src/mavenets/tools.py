@@ -1,6 +1,6 @@
 """Provides routines for completing typical training tasks."""
 
-from typing import Tuple, Callable, Any, Optional, Protocol, Union, Final
+from typing import Tuple, Callable, Any, Optional, Protocol, Union, Final, Dict
 from warnings import warn
 import torch
 from torch.nn.utils import clip_grad_norm_
@@ -13,6 +13,11 @@ from .network import MHTuner
 
 SIGNAL_PYGBATCHKEY: Final = "y"
 EXP_PYGBATCHKEY: Final = "experiment"
+
+EPOCH_CNAME: Final = "epoch"
+LOSS_PARAM_CNAME: Final = "loss_param"
+TRAIN_LOSS_CNAME: Final = "train"
+VALID_LOSS_CNAME: Final = "valid"
 
 
 class DoubleParameterizedLoss(Protocol):
@@ -264,13 +269,14 @@ def _eval_dataset(
     return sequence_mean(losses)
 
 
-def train_tunable_model(
+def train_tunable_model( # noqa: C901
     model: MHTuner,
     optimizer: torch.optim.Optimizer,
     device: str,
     n_epochs: int,
     train_dataset: torch.utils.data.Dataset,
     valid_dataset: torch.utils.data.Dataset,
+    report_datasets: Optional[Dict[str, torch.utils.data.Dataset]] = None,
     train_loss_function: DoubleParameterizedLoss = mixed_MSE,
     report_loss_function: DoubleParameterizedLoss = mixed_MSE,
     train_batch_size: int = 32,
@@ -288,6 +294,11 @@ def train_tunable_model(
     graph: bool = False,
 ) -> Tuple[int, float, pd.DataFrame]:
     """Train MHTuner instance.
+
+    Trains a Tuner-enable model using a variety of options. Training is automatically
+    stops if no improvement in the validation loss is seen, compiles functions where
+    possible, downgrades precision, and generates reports of loss trends during 
+    training.
 
     Arguments:
     ---------
@@ -309,6 +320,11 @@ def train_tunable_model(
         Validation dataset. If graph is True, should be serve pyg Data objects with
         x, y, and experiment attributes. Else, should return
         (features, signal, experiment) tuples.
+    report_datasets:
+        A dictionary of datasets that are evaluated using the model each time an entry
+        is added to the report. Adding datasets via this argument is only needed if
+        tracking the loss over multiple datasets is desired. Loss values on these 
+        datasets do not affect early stopping.
     train_loss_function:
         Train loss function to use. Must be a parameterized loss: should map
         three arguments (guess, reference, parameter) to a scalar tensor.
@@ -387,6 +403,9 @@ def train_tunable_model(
         compile_mode=compile_mode,
     )
 
+    if report_datasets is None:
+        report_datasets = {}
+
     if graph:
         train_dataloader = pygDataLoader(
             train_dataset, batch_size=train_batch_size, shuffle=True
@@ -398,12 +417,12 @@ def train_tunable_model(
 
     patience_counter: Patience[float] = Patience()
 
-    records = []
-    record_epochs = []
+    records = []  # holds train/validation scores
     if progress_bar:
         epoch_source = tqdm(range(n_epochs))
     else:
         epoch_source = range(n_epochs)
+
     for epoch in epoch_source:
         try:
             loss_param = loss_param_schedule.pop(0)
@@ -412,13 +431,15 @@ def train_tunable_model(
         for batch in train_dataloader:
             if graph:
                 full_inp = batch
-                signal = batch["y"]
+                signal = batch[SIGNAL_PYGBATCHKEY]
             else:
                 inp, signal, dataset_index = batch
                 full_inp = (inp, dataset_index)
             train_stepper(inp=full_inp, reference=signal, loss_param=loss_param)
 
         if epoch % report_stride == 0:
+            # process and add records to rep dictionary
+            rep = {EPOCH_CNAME: epoch, LOSS_PARAM_CNAME: loss_param.item()}
             with torch.no_grad():
                 epoch_train_loss = _eval_dataset(
                     evaler=evaler,
@@ -427,6 +448,7 @@ def train_tunable_model(
                     loss_param=loss_param,
                     graph=graph,
                 )
+                rep.update({TRAIN_LOSS_CNAME: epoch_train_loss})
                 epoch_val_loss = _eval_dataset(
                     evaler=evaler,
                     dataset=valid_dataset,
@@ -434,8 +456,19 @@ def train_tunable_model(
                     loss_param=loss_param,
                     graph=graph,
                 )
-            record_epochs.append(epoch)
-            records.append((epoch_train_loss, epoch_val_loss, loss_param.item()))
+                rep.update({VALID_LOSS_CNAME: epoch_val_loss})
+                # go through every report dataset
+                for reporter_name, reporter_dset in report_datasets.items():
+                    score = _eval_dataset(
+                        evaler=evaler,
+                        dataset=reporter_dset,
+                        batch_size=reporting_batch_size,
+                        loss_param=loss_param,
+                        graph=graph,
+                    )
+                    rep.update({reporter_name: score})
+            records.append(rep)
+            # early termination
             patience_count = patience_counter.consider(epoch_val_loss)
             if patience_count > patience / report_stride:
                 break
@@ -450,10 +483,8 @@ def train_tunable_model(
             stacklevel=1,
         )
 
-    table = pd.DataFrame(
-        records, record_epochs, columns=["train_loss", "valid_loss", "loss_param"]
-    )
-    rolled_vals = table["valid_loss"].rolling(3, center=True).median()
+    table = pd.DataFrame(records).set_index(EPOCH_CNAME)
+    rolled_vals = table[VALID_LOSS_CNAME].rolling(3, center=True).median()
     best_epoch = rolled_vals.index[rolled_vals.argmin(skipna=True)]
     best_val = rolled_vals.min()
     return best_epoch, best_val, table

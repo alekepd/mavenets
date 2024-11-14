@@ -2,7 +2,7 @@
 from typing import Final
 import torch
 import pandas as pd  # type: ignore
-from ..data import get_datasets
+from ..data import get_datasets, DATA_SPECS
 from ..network import SharedFanTuner, GraphNet
 from ..tools import train_tunable_model
 
@@ -34,9 +34,20 @@ def test_mpn(
         device=DEVICE,
         feat_type="onehot",
         graph=True,
-        graph_sequence_window_size = window_size,
-        
+        graph_sequence_window_size=window_size,
     )
+
+    report_datasets = {}
+    for spec in DATA_SPECS:
+        _, vdset = get_datasets(
+            train_specs=[spec],
+            val_specs=[spec],
+            device=DEVICE,
+            feat_type="onehot",
+            graph=True,
+            graph_sequence_window_size=window_size,
+        )
+        report_datasets.update({spec.name: vdset})
 
     n_edge_feats = (2 * window_size + 1) + n_distance_feats
 
@@ -60,6 +71,7 @@ def test_mpn(
         train_dataset=train_dataset,
         valid_dataset=valid_dataset,
         train_batch_size=batch_size,
+        report_datasets=report_datasets,
         reporting_batch_size=eval_batch_size,
         compile=compile,
         compile_mode="max-autotune",
