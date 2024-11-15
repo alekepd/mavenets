@@ -1,6 +1,6 @@
 ### mavenets
 
-Tools for training neural networks on MAVE datasets. No Monte Carlo sampling is currently implemented.
+Tools for training neural networks on MAVE datasets and running Markov Chain Monte Carlo simulations.
 
 ## Installation
 
