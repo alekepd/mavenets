@@ -9,7 +9,7 @@ from torch.utils.data import Dataset
 from pathlib import Path
 from torch_geometric.data import Data  # type: ignore
 from .spec import DATA_SPECS, DataSpec, resolve_dataspec, SARSCOV2_FILENAME
-from .featurize import IntEncoder, get_alphabet
+from .featurize import get_alphabet, get_default_int_encoder
 from .graph import get_graph
 
 # column names for labeling loaded MAVE experiment csvs.
@@ -17,32 +17,6 @@ CSV_RID_CNAME: Final = "seq_id"
 SEQ_CNAME: Final = "sequence"
 SIGNAL_CNAME: Final = "signal"
 EXPERIMENT_CNAME: Final = "experiment_index"
-
-# known amino acid codes. Defining them statically here allows
-# reproduciblity if models are training on datasets lacking chemical coverage.
-BASE_ALPHA: Final = [
-    "A",
-    "C",
-    "D",
-    "E",
-    "F",
-    "G",
-    "H",
-    "I",
-    "K",
-    "L",
-    "M",
-    "N",
-    "P",
-    "Q",
-    "R",
-    "S",
-    "T",
-    "V",
-    "W",
-    "Y",
-]
-
 
 class DNSEDataset(Dataset):
     """Graph dataset with identical edges but varying labels.
@@ -223,23 +197,24 @@ def get_datasets(
 
     valid_frame = pd.concat(valid_frames)
 
+    enc = get_default_int_encoder()
+
     # make sure that there are no amino acids in the data not in our standard
     # alphabet. We use a standard alphabet to maintain featurization stability
     # across possibly smaller input datasets.
     alpha = get_alphabet(pd.concat([train_frame, valid_frame]), SEQ_CNAME)
-    if not set(alpha).issubset(set(BASE_ALPHA)):
+    if not set(alpha).issubset(set(enc.alphabet)):
         raise ValueError("Data contains residues not represented fixed alphabet.")
-
-    enc = IntEncoder(BASE_ALPHA)
 
     train_int_encoded = enc.batch_encode(train_frame.loc[:, SEQ_CNAME])
     if feat_type == "onehot":
         # we must cast to int64 to make torch happy
         train_encoded = one_hot(
-            train_int_encoded.to(int64), num_classes=len(BASE_ALPHA)
+            train_int_encoded.to(int64), num_classes=len(enc.alphabet)
         ).to(float32)
     else:
         train_encoded = train_int_encoded
+
     train_signal = tensor(train_frame.loc[:, SIGNAL_CNAME].to_numpy(), dtype=float32)
     train_dset_id = tensor(train_frame.loc[:, EXPERIMENT_CNAME].to_numpy(), dtype=int32)
 
@@ -247,7 +222,7 @@ def get_datasets(
     if feat_type == "onehot":
         # we must cast to int64 to make torch happy
         valid_encoded = one_hot(
-            valid_int_encoded.to(int64), num_classes=len(BASE_ALPHA)
+            valid_int_encoded.to(int64), num_classes=len(enc.alphabet)
         ).to(float32)
     else:
         valid_encoded = valid_int_encoded
