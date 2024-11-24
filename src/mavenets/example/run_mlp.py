@@ -36,7 +36,7 @@ def test_mlp(
         report_datasets.update({spec.name: vdset})
 
     underlying_model = MLP(
-        in_size=20 * 201,
+        in_size=21 * 201,
         out_size=1,
         hidden_sizes=hidden_layer_sizes,
         pre_flatten=True,

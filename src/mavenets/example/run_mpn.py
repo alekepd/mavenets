@@ -19,7 +19,7 @@ def test_mpn(
     n_messages: int = 6,
     window_size: int = 10,
     n_distance_feats: int = 10,
-    n_features: int = 20,
+    n_features: int = 21,
     batch_size: int = 64,
     eval_batch_size: int = int(2**7),
     learning_rate: float = 3e-4,
