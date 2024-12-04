@@ -169,7 +169,7 @@ def get_datasets(
 
     """
     if feat_type not in ("integer", "onehot"):
-        raise ValueError("Only integer featurization is supported.")
+        raise ValueError("Only integer or onehot featurization is supported.")
 
     if train_specs is None:
         train_specs = DATA_SPECS
