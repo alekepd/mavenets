@@ -39,6 +39,7 @@ BASE_ALPHA: Final = [
     "V",
     "W",
     "Y",
+    "X",
 ]
 
 
