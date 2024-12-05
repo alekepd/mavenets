@@ -7,6 +7,7 @@ from torch_geometric.loader import DataLoader as pygDataLoader  # type: ignore
 import pandas as pd  # type: ignore
 from .network import MHTuner
 from .tools import SIGNAL_PYGBATCHKEY, EXP_PYGBATCHKEY
+from .data import resolve_dataspec
 
 _T = TypeVar("_T")
 
@@ -17,7 +18,11 @@ EXPID_KEY: Final = "experiment"
 
 
 def predict(
-    model: MHTuner, dataset: Dataset, graph: bool = False, batch_size: int = 256
+    model: MHTuner,
+    dataset: Dataset,
+    graph: bool = False,
+    translate_experiment_ids: bool = True,
+    batch_size: int = 256,
 ) -> pd.DataFrame:
     """Create a table of raw and tuned predictions.
 
@@ -33,6 +38,9 @@ def predict(
         as those used for training.
     graph:
         If model operates on pyg-style batches, this must be set to True.
+    translate_experiment_ids:
+        If True, integer labels of heads are translated to the string names of
+        experiments.
     batch_size:
         Batch size to use when evaluating the predictions.
 
@@ -89,7 +97,11 @@ def predict(
 
     df = pd.DataFrame()
     df[REFERENCE_KEY] = np.concatenate(references, axis=0)
-    df[EXPID_KEY] = np.concatenate(experiments, axis=0)
+    if translate_experiment_ids:
+        int_ids = np.concatenate(experiments, axis=0)
+        df[EXPID_KEY] = [resolve_dataspec(i).name for i in int_ids]
+    else:
+        df[EXPID_KEY] = np.concatenate(experiments, axis=0)
     df[TUNED_PRED_KEY] = np.concatenate(tuned_predictions, axis=0)
     df[RAW_PRED_KEY] = np.concatenate(raw_predictions, axis=0)
     return df
