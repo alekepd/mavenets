@@ -3,7 +3,6 @@
 from typing import Callable, Optional, Sequence, List, Union
 from dataclasses import dataclass
 import torch
-from torch import nn
 from ..data import get_default_int_encoder, SARS_COV2_SEQ
 
 
@@ -321,7 +320,7 @@ class MetSim:
 
     def __init__(
         self,
-        model: nn.Module,
+        model: Callable[[torch.Tensor],torch.Tensor],
         proposer: Callable[[torch.Tensor, int], torch.Tensor],
         batch_size: int = 128,
         beta: float = 1.0,
