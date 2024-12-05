@@ -3,13 +3,12 @@
 from typing import Final, Tuple, Iterable, Literal, Union, Dict
 import pandas as pd  # type: ignore
 from torch.utils.data import TensorDataset
-from torch import Tensor, tensor, float32, int32, int64
-from torch.nn.functional import one_hot
+from torch import Tensor, tensor, float32, int32
 from torch.utils.data import Dataset
 from pathlib import Path
 from torch_geometric.data import Data  # type: ignore
 from .spec import DATA_SPECS, DataSpec, resolve_dataspec, SARSCOV2_FILENAME
-from .featurize import get_alphabet, get_default_int_encoder
+from .featurize import get_alphabet, get_default_int_encoder, int_to_floatonehot
 from .graph import get_graph
 
 # column names for labeling loaded MAVE experiment csvs.
@@ -17,6 +16,7 @@ CSV_RID_CNAME: Final = "seq_id"
 SEQ_CNAME: Final = "sequence"
 SIGNAL_CNAME: Final = "signal"
 EXPERIMENT_CNAME: Final = "experiment_index"
+
 
 class DNSEDataset(Dataset):
     """Graph dataset with identical edges but varying labels.
@@ -119,7 +119,7 @@ def get_datasets(
     """Load, featurize, and return SARSCOV2 data for training and evaluation.
 
     Loads target signal and sequences from disk, and if graph is specified reads
-    a file describing the 3d structure of the protein. If graph is True, a Tuple of 
+    a file describing the 3d structure of the protein. If graph is True, a Tuple of
     two DNSEDataset is returned; else, two TensorDatasets are returned, first being
     the train data and second the validation data.
 
@@ -209,9 +209,9 @@ def get_datasets(
     train_int_encoded = enc.batch_encode(train_frame.loc[:, SEQ_CNAME])
     if feat_type == "onehot":
         # we must cast to int64 to make torch happy
-        train_encoded = one_hot(
-            train_int_encoded.to(int64), num_classes=len(enc.alphabet)
-        ).to(float32)
+        train_encoded = int_to_floatonehot(
+            train_int_encoded, num_classes=len(enc.alphabet)
+        )
     else:
         train_encoded = train_int_encoded
 
@@ -221,9 +221,9 @@ def get_datasets(
     valid_int_encoded = enc.batch_encode(valid_frame.loc[:, SEQ_CNAME])
     if feat_type == "onehot":
         # we must cast to int64 to make torch happy
-        valid_encoded = one_hot(
-            valid_int_encoded.to(int64), num_classes=len(enc.alphabet)
-        ).to(float32)
+        valid_encoded = int_to_floatonehot(
+            valid_int_encoded, num_classes=len(enc.alphabet)
+        )
     else:
         valid_encoded = valid_int_encoded
     valid_signal = tensor(valid_frame.loc[:, SIGNAL_CNAME].to_numpy(), dtype=float32)

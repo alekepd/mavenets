@@ -14,6 +14,8 @@ from typing import (
 from functools import lru_cache
 import pandas as pd  # type: ignore
 import torch
+from torch.nn.functional import one_hot
+from torch import float32, int64
 from .spec import SARS_COV2_SEQ
 
 # known amino acid codes. Defining them statically here allows
@@ -255,3 +257,26 @@ def _default_encoder_sanity_check() -> None:
 
 
 _default_encoder_sanity_check()
+
+
+def int_to_floatonehot(int_form: torch.Tensor, num_classes: int = -1) -> torch.Tensor:
+    """Transform 32-bit integer encoding to a float32 one-hot encoding.
+
+    Arguments:
+    ---------
+    int_form:
+        Tensor to Transform. Cast to int64 internally.
+    num_classes:
+        Number of classes (size) to use in one hot encoding. If -1, the number of
+        classes present in the data is used. See one_hot.
+
+    Returns:
+    -------
+    float32 one hot encoding.
+
+    """
+    encoded = one_hot(
+        int_form.to(int64),
+        num_classes=num_classes,
+    ).to(float32)
+    return encoded
