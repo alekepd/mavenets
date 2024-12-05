@@ -80,7 +80,7 @@ def decoder_dict(alphabet: List[str]) -> Dict[int, str]:
     return dict(enumerate(alphabet))
 
 
-def _sanity_check() -> None:
+def _dict_sanity_check() -> None:
     letters = list(SARS_COV2_SEQ)
     enc = encoder_dict(BASE_ALPHA)
     dec = decoder_dict(BASE_ALPHA)
@@ -92,7 +92,7 @@ def _sanity_check() -> None:
             )
 
 
-_sanity_check()
+_dict_sanity_check()
 
 
 class _p_encode(Protocol):
@@ -111,6 +111,11 @@ class _p_encode(Protocol):
     def __call__(
         self, target: str, tensor: bool, device: Optional[str] = None
     ) -> Union[List[int], torch.Tensor]:
+        ...
+
+
+class _p_decode(Protocol):
+    def __call__(self, target: Iterable[int]) -> str:
         ...
 
 
@@ -143,8 +148,10 @@ class IntEncoder:
             # it seems like lru_cache is picking up on only the first overloaded type
             # definition, so we override the type.
             self.encode: _p_encode = lru_cache(maxsize=lru_cache_size)(self._encode)  # type: ignore
+            self.decode: _p_decode = lru_cache(maxsize=lru_cache_size)(self._decode)  # type: ignore
         else:
             self.encode = self._encode
+            self.decode = self._decode
 
     @overload
     def _encode(
@@ -184,6 +191,40 @@ class IntEncoder:
         else:
             return encoded
 
+    def _decode(self, target: Iterable[int]) -> str:
+        """Decode single example.
+
+        Translates from integers to a string.
+
+        Arguments:
+        ---------
+        target:
+           Iterable of integers to transform into a string.
+
+        Returns:
+        -------
+        string
+
+        """
+        return "".join([self.decode_map[x] for x in target])
+
+    def batch_decode(self, target: Iterable[Iterable[int]]) -> List[str]:
+        """Decode iterable of examples.
+
+        Translates from integers to strings.
+
+        Arguments:
+        ---------
+        target:
+           Iterable of integers to transform into a string.
+
+        Returns:
+        -------
+        List of strings.
+
+        """
+        return [self.decode(x) for x in target]
+
     def batch_encode(
         self, targets: Iterable[str], device: Optional[str] = None
     ) -> torch.Tensor:
@@ -202,3 +243,15 @@ class IntEncoder:
 def get_default_int_encoder(cache_size: Optional[int] = None) -> IntEncoder:
     """Return default integer encoder."""
     return IntEncoder(BASE_ALPHA, lru_cache_size=cache_size)
+
+
+def _default_encoder_sanity_check() -> None:
+    enc = get_default_int_encoder()
+    sample = "".join(enc.alphabet)
+    if sample != enc.decode(enc.encode(sample, tensor=False)):
+        raise ValueError(
+            "Default encoder does not satisfy round-trip equivalence in sanity check."
+        )
+
+
+_default_encoder_sanity_check()
