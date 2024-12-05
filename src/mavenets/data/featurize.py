@@ -117,7 +117,7 @@ class _p_encode(Protocol):
 
 
 class _p_decode(Protocol):
-    def __call__(self, target: Iterable[int]) -> str:
+    def __call__(self, target: Iterable[int], cast: bool = True) -> str:
         ...
 
 
@@ -193,7 +193,7 @@ class IntEncoder:
         else:
             return encoded
 
-    def _decode(self, target: Iterable[int]) -> str:
+    def _decode(self, target: Iterable[int], cast: bool = True) -> str:
         """Decode single example.
 
         Translates from integers to a string.
@@ -202,13 +202,18 @@ class IntEncoder:
         ---------
         target:
            Iterable of integers to transform into a string.
+        cast:
+            If True, we cal int() on each symbol for attempting lookup.
 
         Returns:
         -------
         string
 
         """
-        return "".join([self.decode_map[x] for x in target])
+        if cast:
+            return "".join([self.decode_map[int(x)] for x in target])
+        else:
+            return "".join([self.decode_map[x] for x in target])
 
     def batch_decode(self, target: Iterable[Iterable[int]]) -> List[str]:
         """Decode iterable of examples.
