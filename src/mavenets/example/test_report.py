@@ -75,7 +75,9 @@ def scan() -> None:
     Prints results and writes csv as it runs.
     """
     WEIGHT_DECAY: Final = 5e-3
-    train_dataset, valid_dataset = get_datasets(device=DEVICE, feat_type="onehot")
+    train_dataset, valid_dataset, test_dataset = get_datasets(
+        device=DEVICE, feat_type="onehot", include_test=True
+    )
     for layer_sel in [(16, 32, 32)]:
         model = test_mlp(
             hidden_layer_sizes=layer_sel,
@@ -83,6 +85,8 @@ def scan() -> None:
         )
         val_table = predict(model=model, dataset=valid_dataset)
         val_table.to_csv("validation_predictions.csv")
+        test_table = predict(model=model, dataset=test_dataset)
+        test_table.to_csv("test_predictions.csv")
 
 
 if __name__ == "__main__":
