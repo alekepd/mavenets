@@ -213,6 +213,22 @@ def get_datasets(
 ) -> Tuple[Dataset, Dataset, Dataset]:
     ...
 
+@overload
+def get_datasets(
+    *,
+    device: str,
+    train_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = ...,
+    val_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = ...,
+    test_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = ...,
+    feat_type: Literal["integer", "onehot"] = ...,
+    graph: bool = ...,
+    graph_sequence_window_size: int = ...,
+    graph_n_distance_feats: int = ...,
+    graph_distance_cutoff: float = ...,
+    parent_path: Path = ...,
+    include_test: Literal[False] = ...,
+) -> Tuple[Dataset, Dataset]:
+    ...
 
 def get_datasets(  # noqa: C901
     *,
