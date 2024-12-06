@@ -1,17 +1,28 @@
-"""Train transformer using prediction accuracy."""
-from typing import Final, Tuple, Any
+"""Train a transformer and run MCMC simulations.
+
+This example trains a transformer from scratch and then uses it for simulation.
+It could be adapted to instead load a pre-trained model and use that for
+simulation. The simulation is done on the raw (non-tuned) output of the transformer,
+but training is done using tuning heads.
+"""
+from typing import Final, Tuple
 import torch
 from torch import nn
+import pandas as pd #type: ignore
 from ..data import get_datasets, DATA_SPECS, get_default_int_encoder, SARS_COV2_SEQ
 from ..network import SumTransformer, SharedFanTuner
 from ..tools import train_tunable_model
 from ..sample import BiasedIntMutate, MetSim
 
 torch.manual_seed(1337)
-# tensor cores on
+# This accelerates computations on certain classes of GPUs at the cost of
+# some accuracy. Testing suggests that the loss of accuracy is negligible.
 torch.set_float32_matmul_precision("high")
 
 DEVICE: Final = "cuda"
+# controls how often we check the performance of the model on all the present
+# data. Lower values provide more detailed validation curves but slow down
+# training.
 REPORT_STRIDE: Final = 10
 
 
@@ -29,14 +40,30 @@ def get_transformer(
     fan_size: int = 16,
     mha_drop: float = 0.1,
     transformer_mlp_drop: float = 0.05,
-    n_final_layers: int = 1,
-    final_dropout: float = 0.01,
+    n_final_layers: int = 2,
+    final_dropout: float = 0.1,
 ) -> Tuple[nn.Module, int, float]:
-    """Train model and evaluate."""
-    # these two seem to be locked together
+    """Train a transformer and return it.
 
+    Note that per-experiment heads are using during training, but the underlying network
+    without any tuning heads is returned. This is what the simulation is then run on.
+    Alternatively, one could wrap the model with the tuning heads intact and fix the
+    tuning head used.
+
+    Arguments specify training options for the transformer.
+
+    Returns:
+    -------
+    A tuple; first element is the trained model, second is the optimal epoch
+    found during training, third is the score at the optimal epoch. Note that the
+    model is not necessarily the one from the optimal epoch, but the model
+    obtained after the halting training.
+
+    """
+    # get data that is used for training and validation
     train_dataset, valid_dataset = get_datasets(device=DEVICE)
 
+    # get data that is used for additional reporting in validation curve.
     report_datasets = {}
     for spec in DATA_SPECS:
         _, vdset = get_datasets(
@@ -46,6 +73,7 @@ def get_transformer(
         )
         report_datasets.update({spec.name: vdset})
 
+    # create transformer
     underlying_model = SumTransformer(
         alphabet_size=256,
         n_transformers=n_blocks,
@@ -56,7 +84,10 @@ def get_transformer(
         n_final_layers=n_final_layers,
         final_dropout=final_dropout,
     )
+    # create the tuner on top of the MLP
     model = SharedFanTuner(underlying_model, n_heads=8, fan_size=fan_size).to(DEVICE)
+
+    # create optimizer
     opter = torch.optim.AdamW(
         model.parameters(),
         lr=learning_rate,
@@ -64,6 +95,7 @@ def get_transformer(
         weight_decay=weight_decay,
     )
 
+    # train the model with tuning heads
     report = train_tunable_model(
         model=model,
         optimizer=opter,
@@ -82,31 +114,75 @@ def get_transformer(
         progress_bar=True,
     )
 
+    # now return the model _WITHOUT_ the tuning part. We also return basic information
+    # on the training run.
+
     return underlying_model, report[0], report[1]
 
 
-def test_sim(beta: float = -10000.0) -> Any:
-    """Trains a transformer and runs a simulation with it."""
-    BIAS: Final = 0.7
-    N_SIM_STEPS: Final = 200000
+def test_sim(beta: float = -10.0) -> pd.DataFrame:
+    """Trains an MLP and runs a simulation with it.
 
-    # get trained model
-    raw_model, best_epoch, best_val = get_transformer()
+    Arguments:
+    ---------
+    beta:
+        distribution targeted is proportional to exp(-beta U(x)) (plus the native bias) 
+        where U is the neural network. If we want _high_ U, beta should be negative.
+
+    Returns:
+    -------
+    A DataFrame containing the results of the simulation: amino acid choices for
+    each position, the energy of each recorded sequence, and the simultation time step 
+    at which the sequence was found.
+
+    """
+    # bias is between 0 and 1. 1 forces the simulation to stay at the native state,
+    # 0 does not put any bias in.
+    NATIVE_BIAS: Final = 0.85
+
+    # length of simulation
+    N_SIM_STEPS: Final = 100000
+
+    # beta IS AN ARGUMENT TO THIS FUNCTION! If you want to look for sequences with a
+    # _high_ energy, it should be a negative number. Physical intuition then comes by
+    # thinking about it with its sign flipped as a "temperature", so very negative
+    # values mean a smoother landscape (analogous to a higher temperature).
+
+    # train single model for a selected architecture.
+    # raw_model is the model without the tuning head.
+    raw_model, best_epoch, best_val = get_transformer(n_epochs=125)
     print("best epoch", best_epoch)
     print("best score", best_val)
 
-    # run simulation
     with torch.no_grad():
-        # create starting sequence
+        # create starting sequence, encode to integer form
         enc = get_default_int_encoder()
         center_seq = enc.encode(SARS_COV2_SEQ, tensor=True).to(DEVICE)
-        # create move generation mechanism
-        mut = BiasedIntMutate(0, 20, bias=BIAS, center=center_seq)
+
+        # create move generation mechanism. This is where the native
+        # bias is introduced.
+        # note that we use 20, not 21, as the 21st symbol is X, representing
+        # an unknown amino acid. We probably don't want to sample that.
+        mut = BiasedIntMutate(0, 20, bias=NATIVE_BIAS, center=center_seq)
+
         # create simulation
         sim = MetSim(model=raw_model, proposer=mut, beta=beta, compile=True)
-        # run simulation
+
+        # run simulation; frames contains the result
         frames = sim.run(N_SIM_STEPS, device=DEVICE)
-    return frames
+
+    # frames is a list of 
+
+    # decode the observed sequences from integers to strings
+    sequences = enc.batch_decode([x.sequence for x in frames])
+
+    # create table summarizing results
+    df = pd.DataFrame([list(x) for x in sequences])
+    df.columns = ["p" + str(x) for x in df.columns]
+    df["time"] = [x.index for x in frames]
+    df["energy"] = [x.energy for x in frames]
+
+    return df
 
 
 if __name__ == "__main__":
