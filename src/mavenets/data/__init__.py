@@ -9,6 +9,7 @@ from .spec import (
 from .graph import LegacyGraphDataReader  # noqa: F401
 from .featurize import (
     get_default_int_encoder,  # noqa: F401
+    IntEncoder, # noqa: F401
     int_to_floatonehot,  # noqa: F401
     SARS_COV2_SEQ,  # noqa: F401
 )

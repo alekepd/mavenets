@@ -33,6 +33,7 @@ class DataSpec:
     name: str  # convienient name labeling the experiment.
     train_filename: Path  # local path of train csv
     valid_filename: Path  # local path of valid csv
+    test_filename: Path  # local path of valid csv
     index: int  # positive unique labeling experiment.
 
 
@@ -41,48 +42,56 @@ DATA_SPECS: Final = [
         name="base",
         train_filename=Path("train_data.csv"),
         valid_filename=Path("valid_data.csv"),
+        test_filename=Path("test_data.csv"),
         index=0,
     ),
     DataSpec(
         name="B1351",
         train_filename=Path("not_norm_train_data_B1351.csv"),
         valid_filename=Path("not_norm_valid_data_B1351.csv"),
+        test_filename=Path("not_norm_test_data_B1351.csv"),
         index=1,
     ),
     DataSpec(
         name="E484K",
         train_filename=Path("not_norm_train_data_E484K.csv"),
         valid_filename=Path("not_norm_valid_data_E484K.csv"),
+        test_filename=Path("not_norm_test_data_E484K.csv"),
         index=2,
     ),
     DataSpec(
         name="N501Y",
         train_filename=Path("not_norm_train_data_N501Y.csv"),
         valid_filename=Path("not_norm_valid_data_N501Y.csv"),
+        test_filename=Path("not_norm_test_data_N501Y.csv"),
         index=3,
     ),
     DataSpec(
         name="BA1",
         train_filename=Path("not_norm_train_data_omicron_BA1.csv"),
         valid_filename=Path("not_norm_valid_data_omicron_BA1.csv"),
+        test_filename=Path("not_norm_test_data_omicron_BA1.csv"),
         index=4,
     ),
     DataSpec(
         name="BA2",
         train_filename=Path("not_norm_train_data_omicron_BA2.csv"),
         valid_filename=Path("not_norm_valid_data_omicron_BA2.csv"),
+        test_filename=Path("not_norm_test_data_omicron_BA2.csv"),
         index=5,
     ),
     DataSpec(
         name="wuhan_omicron",
         train_filename=Path("not_norm_train_data_omicron_Wuhan_Hu_1.csv"),
         valid_filename=Path("not_norm_valid_data_omicron_Wuhan_Hu_1.csv"),
+        test_filename=Path("not_norm_test_data_omicron_Wuhan_Hu_1.csv"),
         index=6,
     ),
     DataSpec(
         name="wuhan",
         train_filename=Path("not_norm_train_data_Wuhan_Hu_1.csv"),
         valid_filename=Path("not_norm_valid_data_Wuhan_Hu_1.csv"),
+        test_filename=Path("not_norm_test_data_Wuhan_Hu_1.csv"),
         index=7,
     ),
 ]
