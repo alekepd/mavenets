@@ -33,15 +33,15 @@ REPORT_STRIDE: Final = 10
 
 
 def get_mlp(
-    hidden_layer_sizes: Sequence[int], # MLP architecture
-    compile: bool = True, # whether to use torch compile
+    hidden_layer_sizes: Sequence[int],  # MLP architecture
+    compile: bool = True,  # whether to use torch compile
     batch_size: int = 32,
     eval_batch_size: int = int(2**11),
     learning_rate: float = 3e-4,
     weight_decay: float = 0.005,
-    n_epochs: int = 175, # number of epochs to train for
+    n_epochs: int = 175,  # number of epochs to train for
     grad_clip: int = 300,
-    fan_size: int = 16, # hyperparameter of tuning heads
+    fan_size: int = 16,  # hyperparameter of tuning heads
 ) -> Tuple[nn.Module, int, float]:
     """Train and MLP and return it.
 
@@ -76,9 +76,9 @@ def get_mlp(
 
     # create MLP
     underlying_model = MLP(
-        in_size=21 * 201, # this is the size of our alphabet times the sequence size.
-        out_size=1, # 
-        hidden_sizes=hidden_layer_sizes, # controls the arch
+        in_size=21 * 201,  # this is the size of our alphabet times the sequence size.
+        out_size=1,  #
+        hidden_sizes=hidden_layer_sizes,  # controls the arch
         pre_flatten=True,
         post_squeeze=True,
     )
@@ -125,22 +125,25 @@ def test_sim(beta: float = -100.0) -> pd.DataFrame:
     Arguments:
     ---------
     beta:
-        distribution targeted is proportional to exp(-beta U(x)) (plus the native bias) 
+        distribution targeted is proportional to exp(-beta U(x)) (plus the native bias)
         where U is the neural network. If we want _high_ U, beta should be negative.
 
     Returns:
     -------
     A DataFrame containing the results of the simulation: amino acid choices for
-    each position, the energy of each recorded sequence, and the simultation time step 
+    each position, the energy of each recorded sequence, and the simultation time step
     at which the sequence was found.
 
     """
     # bias is between 0 and 1. 1 forces the simulation to stay at the native state,
     # 0 does not put any bias in.
-    NATIVE_BIAS: Final = 0.85
+    NATIVE_BIAS: Final = 0.95
 
     # length of simulation
     N_SIM_STEPS: Final = 100000
+
+    # maximum number of mutations to allow in the simulation.
+    MAX_NUM_MUTATIONS: Final = 9
 
     # beta IS AN ARGUMENT TO THIS FUNCTION! If you want to look for sequences with a
     # _high_ energy, it should be a negative number. Physical intuition then comes by
@@ -149,7 +152,7 @@ def test_sim(beta: float = -100.0) -> pd.DataFrame:
 
     # train single model for a selected architecture.
     # raw_model is the model without the tuning head.
-    raw_model, best_epoch, best_val = get_mlp(hidden_layer_sizes=(16, 64), n_epochs=30)
+    raw_model, best_epoch, best_val = get_mlp(hidden_layer_sizes=(32,), n_epochs=30)
     print("best epoch", best_epoch)
     print("best score", best_val)
 
@@ -173,13 +176,23 @@ def test_sim(beta: float = -100.0) -> pd.DataFrame:
             # the MLP has the dimensionality for it, so we use 21 here.
             return raw_model(int_to_floatonehot(x, 21))
 
-        # create simulation
-        sim = MetSim(model=_wrapped_model, proposer=mut, beta=beta, compile=True)
+        # create simulation. This is where the maximum mutation count
+        # is given. Note that here the mutations are calculated relative to the
+        # wild type (sample as the bias) but these could be calculated with
+        # respect to different sequences.
+        sim = MetSim(
+            model=_wrapped_model,
+            proposer=mut,
+            beta=beta,
+            compile=True,
+            center=center_seq,
+            max_distance_to_center=MAX_NUM_MUTATIONS,
+        )
 
         # run simulation; frames contains the result
         frames = sim.run(N_SIM_STEPS, device=DEVICE)
 
-    # frames is a list of 
+    # frames is a list of
 
     # decode the observed sequences from integers to strings
     sequences = enc.batch_decode([x.sequence for x in frames])
