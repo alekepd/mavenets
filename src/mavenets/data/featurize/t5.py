@@ -45,7 +45,9 @@ class T5EncoderWrapper:
 
     T5_huggingface_name: Final = "Rostlab/prot_t5_xl_half_uniref50-enc"
 
-    def __init__(self, integer_encoder: IntEncoder, device: str) -> None:
+    def __init__(
+        self, integer_encoder: IntEncoder, device: str, flatten: bool = True
+    ) -> None:
         """Store options.
 
         Arguments:
@@ -57,11 +59,16 @@ class T5EncoderWrapper:
             integer-encoded.
         device:
             torch device identifier (e.g., "cuda")
+        flatten:
+            If true, we return a matrix of shape (b, f) for batched input. Otherwise,
+            the returned values are organized by sequence (with an additional entry),
+            shape (b, n_res+1, 1024)
 
         """
         if integer_encoder is None:
             integer_encoder = get_default_int_encoder()
         self.device = device
+        self.flatten = flatten
         self.tokenizer = T5Tokenizer.from_pretrained(
             self.T5_huggingface_name, do_lower_case=False
         )
@@ -86,7 +93,6 @@ class T5EncoderWrapper:
 
         """
         str_features = self.integer_encoder.batch_decode(int_encoded)
-        # need
         formatted = [" ".join(x) for x in str_features]
         ids = self.tokenizer(formatted, add_special_tokens=True)
         input_ids = torch.tensor(ids["input_ids"]).to(self.device)
@@ -98,4 +104,7 @@ class T5EncoderWrapper:
 
         emb = embedding_repr.last_hidden_state
 
-        return emb
+        if self.flatten:
+            return emb.flatten(start_dim=1)
+        else:
+            return emb
