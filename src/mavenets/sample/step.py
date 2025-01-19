@@ -331,7 +331,7 @@ class MetStep:
         """
         if self.compile:
             if self._compiled_step is None:
-                self._compiled_step = torch.compile(self._step, mode="max-autotune")
+                self._compiled_step = torch.compile(self._step)
             return self._compiled_step(inp)
         else:
             return self._step(inp)
