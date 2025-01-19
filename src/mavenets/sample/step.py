@@ -267,7 +267,7 @@ class MetStep:
         self._beta = beta
         self.beta: Optional[torch.Tensor] = None
         self.compile = compile
-        self._compiled_step = self._step
+        self._compiled_step: Optional[Callable] = None
 
         if center is not None and max_distance_to_center is None:
             raise ValueError(
@@ -329,9 +329,12 @@ class MetStep:
         May correspond to multiple Metropolis updates in the implied
         Markov chain.
         """
-        if self.compile and self._compiled_step is None:
-            self._compiled_step = torch.compile(self._step)
-        return self._compiled_step(inp)
+        if self.compile:
+            if self._compiled_step is None:
+                self._compiled_step = torch.compile(self._step, mode="max-autotune")
+            return self._compiled_step(inp)
+        else:
+            return self._step(inp)
 
     def __call__(self, inp: State) -> State:
         """Make a single Metropolis update.
