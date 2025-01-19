@@ -302,7 +302,7 @@ class MetStep:
         if self.bcast_center is not None:
             # get which samples would be far
             mask = (
-                num_changes(self.bcast_center, variates) < self.max_distance_to_center
+                num_changes(self.bcast_center, cands) < self.max_distance_to_center
             )
             # boolean and
             acceptances = acceptances * mask
