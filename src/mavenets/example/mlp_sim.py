@@ -137,7 +137,7 @@ def test_sim(beta: float = -100.0) -> pd.DataFrame:
     """
     # bias is between 0 and 1. 1 forces the simulation to stay at the native state,
     # 0 does not put any bias in.
-    NATIVE_BIAS: Final = 0.85
+    NATIVE_BIAS: Final = 0.95
 
     # length of simulation
     N_SIM_STEPS: Final = 100000
