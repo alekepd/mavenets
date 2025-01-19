@@ -318,8 +318,8 @@ def get_datasets(  # noqa: C901
     2-3 DMSE datasets of the same data coupled with a structure graph. See include_test.
 
     """
-    if feat_type not in ("integer", "onehot"):
-        raise ValueError("Only integer or onehot featurization is supported.")
+    if feat_type not in ("integer", "onehot", "t5"):
+        raise ValueError("Only integer, onehot, or t5 featurization is supported.")
 
     if train_specs is None:
         train_specs = DATA_SPECS
