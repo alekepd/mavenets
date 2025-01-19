@@ -8,7 +8,7 @@ from transformers import T5Tokenizer, T5EncoderModel  # type:ignore
 import torch
 
 
-def example(device: str = "cuda") -> None:
+def _example(device: str = "cuda") -> Tensor:
     tokenizer = T5Tokenizer.from_pretrained(
         "Rostlab/prot_t5_xl_half_uniref50-enc", do_lower_case=False
     )
