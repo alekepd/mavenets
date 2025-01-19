@@ -301,9 +301,7 @@ class MetStep:
         # if any acceptances would be to far in distance, reject them
         if self.bcast_center is not None:
             # get which samples would be far
-            mask = (
-                num_changes(self.bcast_center, cands) < self.max_distance_to_center
-            )
+            mask = num_changes(self.bcast_center, cands) <= self.max_distance_to_center
             # boolean and
             acceptances = acceptances * mask
 
