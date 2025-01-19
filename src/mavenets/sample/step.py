@@ -358,6 +358,8 @@ class MetSim:
         proposer: Callable[[torch.Tensor, int], torch.Tensor],
         batch_size: int = 128,
         beta: float = 1.0,
+        center: Optional[torch.Tensor] = None,
+        max_distance_to_center: Optional[int] = None,
         compile: bool = False,
         jump_stride: int = 10,
     ) -> None:
@@ -376,6 +378,13 @@ class MetSim:
         beta:
             Probability density is assumed to proportional to exp(-beta U), where
             U is the output of model.
+        center:
+            Passed to MetStep.  If center is provided, proposals which would
+            move the system further than max_distance_to_center are rejected.
+            Both or neither center and max_distance_to_center may be not-none.
+            Distance is the number of shared elements, not euclidean distance.
+        max_distance_to_center:
+            see center argument.
         compile:
             Whether to use torch.compile to speed up computation. Usually improves
             performance, but may make debugging harder.
@@ -391,6 +400,8 @@ class MetSim:
             proposer=proposer,
             batch_size=batch_size,
             beta=beta,
+            center=center,
+            max_distance_to_center=max_distance_to_center,
             compile=compile,
         )
         self.jump_stride = jump_stride
