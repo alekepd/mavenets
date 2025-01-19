@@ -5,6 +5,7 @@ This module should not import any other modules in the package.
 from typing import Iterator, Sequence, TypeVar, Any, Callable, Optional, Generic
 from contextlib import contextmanager
 from operator import lt
+from torch import Tensor, sign, flatten
 
 _T = TypeVar("_T")
 
@@ -113,3 +114,35 @@ class Patience(Generic[_T]):
 
         """
         return self.consider(new)
+
+
+def num_changes(first: Tensor, second: Tensor, /, *, batch_axis: bool = True) -> Tensor:
+    """Calculate the number of differing elements between two tensors.
+
+    Arguments:
+    ---------
+    first:
+        first and second are the two tensors we are comparing. They compatible in
+        shape based on broadcasting using "-". If batch_axis is True, the result after
+        broadcasting must be of rank at least 2.
+    second:
+        see first argument.
+    batch_axis:
+        If true, we assume that first and second contain `n` different cases, indexed
+        by the first axis. We return the count for each case.
+
+    Returns:
+    -------
+    Tensor containing the number of differences. If batch_axis, one-dimensional with
+    length equal to that of the first axes of first and second. Else, zero-dimensional
+    tensor.
+
+    """
+    flags = sign(first - second).abs()
+    if batch_axis:
+        # using flatten allows us to avoid python logic. Combine all axes past the 
+        # first to make a two dimensional tensor.
+        flat = flatten(flags, start_dim=1)
+        return flat.sum(dim=1)
+    else:
+        return flags.sum()
