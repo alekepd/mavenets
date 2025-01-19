@@ -4,6 +4,7 @@ from typing import Callable, Optional, Sequence, List, Union
 from dataclasses import dataclass
 import torch
 from ..data import get_default_int_encoder, SARS_COV2_SEQ
+from ..util import num_changes
 
 
 @dataclass(frozen=True)
@@ -228,6 +229,8 @@ class MetStep:
         proposer: Callable[[torch.Tensor, int], torch.Tensor],
         batch_size: int = 512,
         beta: float = 1.0,
+        center: Optional[torch.Tensor] = None,
+        max_distance_to_center: Optional[int] = None,
         compile: bool = False,
     ) -> None:
         """Store options.
@@ -243,12 +246,19 @@ class MetStep:
             on.  Likely IntMutate or BiasedIntMutate.
         batch_size:
             Number of candidates to evaluate when taking steps.
-        compile:
-            Whether to use torch.compile to speed up computation. Usually improves
-            performance, but may make debugging harder.
         beta:
             Probability density is assumed to proportional to exp(-beta U), where
             U is the output of model.
+        center:
+            If center is provided, proposals which would move the system further than
+            max_distance_to_center are rejected. Both or neither center and
+            max_distance_to_center may be not-none. Distance is the number of shared
+            elements, not euclidean distance.
+        max_distance_to_center:
+            see center argument.
+        compile:
+            Whether to use torch.compile to speed up computation. Usually improves
+            performance, but may make debugging harder.
 
         """
         self.model = model
@@ -259,6 +269,17 @@ class MetStep:
         self.compile = compile
         self._compiled_step = self._step
 
+        if center is not None and max_distance_to_center is None:
+            raise ValueError(
+                "center sequence was provided but max_distance_to_center "
+                "was unset. Either provide both or neither."
+            )
+        if center is None:
+            self.bcast_center = None
+        else:
+            self.bcast_center = torch.unsqueeze(center, 0)
+        self.max_distance_to_center = max_distance_to_center
+
     def _step(self, inp: State) -> State:
         """Return new simulation state."""
         start = inp.sequence
@@ -268,14 +289,24 @@ class MetStep:
         cands = self.proposer(start, self.batch_size)
         # get energy of starting sequence
         start_e = self.model(start[None, :])
-        # get energy of cndidates
+        # get energy of candidates
         next_es = self.model(cands)
         # get metropolis crits
         deltas = next_es - start_e
         crits = _metropolis_crit(deltas, self.beta)
         # do random check for acceptance
         variates = torch.rand(*crits.shape, device=start.device)
-        acceptances = variates < crits  # whether each sample would be an accept
+        # whether each sample would be an accept based on energy
+        acceptances = variates < crits
+        # if any acceptances would be to far in distance, reject them
+        if self.bcast_center is not None:
+            # get which samples would be far
+            mask = (
+                num_changes(self.bcast_center, variates) < self.max_distance_to_center
+            )
+            # boolean and
+            acceptances = acceptances * mask
+
         # see if any samples were accepted
         which_sample = torch.nonzero(acceptances, as_tuple=True)[0]
         # if no sample was accepted, return original sample with incremented index
@@ -320,7 +351,7 @@ class MetSim:
 
     def __init__(
         self,
-        model: Callable[[torch.Tensor],torch.Tensor],
+        model: Callable[[torch.Tensor], torch.Tensor],
         proposer: Callable[[torch.Tensor, int], torch.Tensor],
         batch_size: int = 128,
         beta: float = 1.0,
