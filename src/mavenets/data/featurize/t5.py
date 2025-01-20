@@ -1,13 +1,13 @@
 """Provides compatible for some tools from the bioembeddings package."""
 
-from typing import Final, Sequence
+from typing import Final, Sequence, Iterable
 from .core import IntEncoder, get_default_int_encoder
 from torch import Tensor
 
 from transformers import T5Tokenizer, T5EncoderModel  # type:ignore
 import torch
 
-def chunks(inp: Sequence, n: int):
+def chunks(inp: Sequence, n: int) -> Iterable[Sequence]:
     """Yield successive n-sized chunks from inp.
 
     From stack overflow:
