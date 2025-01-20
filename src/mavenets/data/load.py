@@ -146,7 +146,7 @@ def _get_aggregate_mave_csv(
 
 
 def _process_table(
-    frame: pd.DataFrame, feat_type: str, int_encoder: IntEncoder
+    frame: pd.DataFrame, feat_type: str, int_encoder: IntEncoder, device: str
 ) -> Tuple[Tensor, Tensor, Tensor]:
     """Transform data frame into processed tensors.
 
@@ -162,6 +162,8 @@ def _process_table(
         encodings from a pretrained transformer.
     int_encoder:
         IntEncoder instance to perform integer encoding.
+    device:
+        torch device specifier. Only used for t5 inference.
 
     Returns:
     -------
@@ -176,9 +178,9 @@ def _process_table(
         encoded = int_encoded
     elif feat_type == "t5":
         enc = T5EncoderWrapper(
-            integer_encoder=int_encoder, device="cpu", per_protein=True
+            integer_encoder=int_encoder, device=device, per_protein=True
         )
-        encoded = enc.batch_encode(int_encoded)
+        encoded = enc.batch_encode(int_encoded).cpu()
     else:
         raise ValueError("Unknown featurization type: {}".format(feat_type))
 
@@ -358,16 +360,25 @@ def get_datasets(  # noqa: C901
         raise ValueError("Data contains residues not represented fixed alphabet.")
 
     train_encoded, train_signal, train_dset_id = _process_table(
-        train_frame, feat_type=feat_type, int_encoder=enc
+        train_frame,
+        feat_type=feat_type,
+        int_encoder=enc,
+        device=device,
     )
 
     valid_encoded, valid_signal, valid_dset_id = _process_table(
-        valid_frame, feat_type=feat_type, int_encoder=enc
+        valid_frame,
+        feat_type=feat_type,
+        int_encoder=enc,
+        device=device,
     )
 
     if include_test:
         test_encoded, test_signal, test_dset_id = _process_table(
-            test_frame, feat_type=feat_type, int_encoder=enc
+            test_frame,
+            feat_type=feat_type,
+            int_encoder=enc,
+            device=device,
         )
 
     if graph:
