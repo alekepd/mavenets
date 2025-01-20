@@ -175,7 +175,9 @@ def _process_table(
     elif feat_type == "integer":
         encoded = int_encoded
     elif feat_type == "t5":
-        enc = T5EncoderWrapper(integer_encoder=int_encoder, device="cpu", flatten=True)
+        enc = T5EncoderWrapper(
+            integer_encoder=int_encoder, device="cpu", per_protein=True
+        )
         encoded = enc.batch_encode(int_encoded)
     else:
         raise ValueError("Unknown featurization type: {}".format(feat_type))
