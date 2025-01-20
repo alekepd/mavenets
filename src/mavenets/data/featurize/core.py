@@ -16,7 +16,7 @@ import pandas as pd  # type: ignore
 import torch
 from torch.nn.functional import one_hot
 from torch import float32, int64
-from .spec import SARS_COV2_SEQ
+from ..spec import SARS_COV2_SEQ
 
 # known amino acid codes. Defining them statically here allows
 # reproduciblity if models are training on datasets lacking chemical coverage.

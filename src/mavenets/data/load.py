@@ -14,6 +14,7 @@ from .featurize import (
     int_to_floatonehot,
     IntEncoder,
 )
+from .featurize.t5 import T5EncoderWrapper
 from .graph import get_graph
 
 # column names for labeling loaded MAVE experiment csvs.
@@ -145,7 +146,7 @@ def _get_aggregate_mave_csv(
 
 
 def _process_table(
-    frame: pd.DataFrame, onehot: bool, int_encoder: IntEncoder
+    frame: pd.DataFrame, feat_type: str, int_encoder: IntEncoder, device: str
 ) -> Tuple[Tensor, Tensor, Tensor]:
     """Transform data frame into processed tensors.
 
@@ -155,11 +156,14 @@ def _process_table(
         Data frame to process. Should have columns corresponding to SEQ_CNAME,
         SIGNA_CNAME, and EXPERIMENT_CNAME variables. Likely from _mave_csv_read or
         _get_aggregate_mave_csv.
-    onehot:
-        Whether to one-hot-ify the integer features. Note that one hot features
-        are cast to float32.
+    feat_type:
+        How to featurize data. "onehot" corresponds to one-hot features
+        (float32), "integer" corresponds to integer encoding, "t5" uses
+        encodings from a pretrained transformer.
     int_encoder:
         IntEncoder instance to perform integer encoding.
+    device:
+        torch device specifier. Only used for t5 inference.
 
     Returns:
     -------
@@ -168,10 +172,17 @@ def _process_table(
 
     """
     int_encoded = int_encoder.batch_encode(frame.loc[:, SEQ_CNAME])
-    if onehot:
+    if feat_type == "onehot":
         encoded = int_to_floatonehot(int_encoded, num_classes=len(int_encoder.alphabet))
-    else:
+    elif feat_type == "integer":
         encoded = int_encoded
+    elif feat_type == "t5":
+        enc = T5EncoderWrapper(
+            integer_encoder=int_encoder, device=device, per_protein=True
+        )
+        encoded = enc.batch_encode(int_encoded).cpu()
+    else:
+        raise ValueError("Unknown featurization type: {}".format(feat_type))
 
     signal = tensor(frame.loc[:, SIGNAL_CNAME].to_numpy(), dtype=float32)
     dset_id = tensor(frame.loc[:, EXPERIMENT_CNAME].to_numpy(), dtype=int32)
@@ -185,7 +196,7 @@ def get_datasets(
     train_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = ...,
     val_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = ...,
     test_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = ...,
-    feat_type: Literal["integer", "onehot"] = ...,
+    feat_type: Literal["integer", "onehot", "t5"] = ...,
     graph: bool = ...,
     graph_sequence_window_size: int = ...,
     graph_n_distance_feats: int = ...,
@@ -203,7 +214,7 @@ def get_datasets(
     train_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = ...,
     val_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = ...,
     test_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = ...,
-    feat_type: Literal["integer", "onehot"] = ...,
+    feat_type: Literal["integer", "onehot", "t5"] = ...,
     graph: bool = ...,
     graph_sequence_window_size: int = ...,
     graph_n_distance_feats: int = ...,
@@ -213,6 +224,7 @@ def get_datasets(
 ) -> Tuple[Dataset, Dataset, Dataset]:
     ...
 
+
 @overload
 def get_datasets(
     *,
@@ -220,7 +232,7 @@ def get_datasets(
     train_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = ...,
     val_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = ...,
     test_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = ...,
-    feat_type: Literal["integer", "onehot"] = ...,
+    feat_type: Literal["integer", "onehot", "t5"] = ...,
     graph: bool = ...,
     graph_sequence_window_size: int = ...,
     graph_n_distance_feats: int = ...,
@@ -230,13 +242,14 @@ def get_datasets(
 ) -> Tuple[Dataset, Dataset]:
     ...
 
+
 def get_datasets(  # noqa: C901
     *,
     device: str,
     train_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = None,
     val_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = None,
     test_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = None,
-    feat_type: Literal["integer", "onehot"] = "integer",
+    feat_type: Literal["integer", "onehot", "t5"] = "integer",
     graph: bool = False,
     graph_sequence_window_size: int = 10,
     graph_n_distance_feats: int = 10,
@@ -272,11 +285,13 @@ def get_datasets(  # noqa: C901
         if a string, compared against the names. If None, all data sets are used. This
         information is only used if include_test is True.
     feat_type:
-        Featurization used; only "integer" and "onehot" are accepted. "integer"
+        Featurization used; only "integer", "onehot", and "t5" are accepted. "integer"
         corresponds to a vector with one integer entry per amino acid determining
         the residue type. "onehot" creates a 0-1 vector that is longer with the same
         information (see torch.nn.functional.one_hot). Note that the one hot is
-        converted to the float32 dtype.
+        converted to the float32 dtype. "t5" uses embeddings from a pretrained
+        T5 model from hugging face. Note that t5 may trigger the download
+        of the model which is approximately 10GB.
     graph:
         If True, returned datasets are DNSEDataset instances based on a
         structure/sequence graph. Edges are directed and featurized; see graph_* and
@@ -307,8 +322,8 @@ def get_datasets(  # noqa: C901
     2-3 DMSE datasets of the same data coupled with a structure graph. See include_test.
 
     """
-    if feat_type not in ("integer", "onehot"):
-        raise ValueError("Only integer or onehot featurization is supported.")
+    if feat_type not in ("integer", "onehot", "t5"):
+        raise ValueError("Only integer, onehot, or t5 featurization is supported.")
 
     if train_specs is None:
         train_specs = DATA_SPECS
@@ -345,16 +360,25 @@ def get_datasets(  # noqa: C901
         raise ValueError("Data contains residues not represented fixed alphabet.")
 
     train_encoded, train_signal, train_dset_id = _process_table(
-        train_frame, onehot=(feat_type == "onehot"), int_encoder=enc
+        train_frame,
+        feat_type=feat_type,
+        int_encoder=enc,
+        device=device,
     )
 
     valid_encoded, valid_signal, valid_dset_id = _process_table(
-        valid_frame, onehot=(feat_type == "onehot"), int_encoder=enc
+        valid_frame,
+        feat_type=feat_type,
+        int_encoder=enc,
+        device=device,
     )
 
     if include_test:
         test_encoded, test_signal, test_dset_id = _process_table(
-            test_frame, onehot=(feat_type == "onehot"), int_encoder=enc
+            test_frame,
+            feat_type=feat_type,
+            int_encoder=enc,
+            device=device,
         )
 
     if graph:
