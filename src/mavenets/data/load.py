@@ -14,7 +14,6 @@ from .featurize import (
     int_to_floatonehot,
     IntEncoder,
 )
-from .featurize.t5 import T5EncoderWrapper
 from .graph import get_graph
 
 # column names for labeling loaded MAVE experiment csvs.
@@ -177,6 +176,8 @@ def _process_table(
     elif feat_type == "integer":
         encoded = int_encoded
     elif feat_type == "t5":
+        from .featurize.t5 import T5EncoderWrapper
+
         enc = T5EncoderWrapper(
             integer_encoder=int_encoder, device=device, per_protein=True
         )
