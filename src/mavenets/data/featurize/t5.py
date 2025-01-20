@@ -1,6 +1,6 @@
 """Provides compatible for some tools from the bioembeddings package."""
 
-from typing import Final
+from typing import Final, Sequence
 from .core import IntEncoder, get_default_int_encoder
 from torch import Tensor
 
