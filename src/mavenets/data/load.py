@@ -13,6 +13,9 @@ from .featurize import (
     get_default_int_encoder,
     int_to_floatonehot,
     IntEncoder,
+    SKT_protocol,
+    Whiten,
+    NullTransform,
 )
 from .graph import get_graph
 
@@ -204,6 +207,7 @@ def get_datasets(
     graph_distance_cutoff: float = ...,
     parent_path: Path = ...,
     include_test: Literal[False],
+    whiten: Optional[bool] = ...,
 ) -> Tuple[Dataset, Dataset]:
     ...
 
@@ -222,6 +226,7 @@ def get_datasets(
     graph_distance_cutoff: float = ...,
     parent_path: Path = ...,
     include_test: Literal[True],
+    whiten: Optional[bool] = ...,
 ) -> Tuple[Dataset, Dataset, Dataset]:
     ...
 
@@ -240,6 +245,7 @@ def get_datasets(
     graph_distance_cutoff: float = ...,
     parent_path: Path = ...,
     include_test: Literal[False] = ...,
+    whiten: Optional[bool] = ...,
 ) -> Tuple[Dataset, Dataset]:
     ...
 
@@ -257,6 +263,7 @@ def get_datasets(  # noqa: C901
     graph_distance_cutoff: float = 2.5,
     parent_path: Path = Path(),
     include_test: bool = False,
+    whiten: Optional[bool] = None,
 ) -> Union[Tuple[Dataset, Dataset], Tuple[Dataset, Dataset, Dataset]]:
     """Load, featurize, and return SARSCOV2 data for training and evaluation.
 
@@ -315,6 +322,11 @@ def get_datasets(  # noqa: C901
     include_test:
         If True, we return 3 datasets: train, validation, and test. If false,
         only train and validation are returned.
+    whiten:
+        Whether to whiten features. If True, a whitening transform is trained on
+        the statistics of the training set and used to transform the training,
+        validation, and test sets. If None, we use whitening on t5 transformed
+        data but not elsewhere.
 
     Returns:
     -------
@@ -325,6 +337,14 @@ def get_datasets(  # noqa: C901
     """
     if feat_type not in ("integer", "onehot", "t5"):
         raise ValueError("Only integer, onehot, or t5 featurization is supported.")
+
+    if whiten is None:
+        whiten = feat_type == "t5"
+
+    if whiten:
+        post_transform: SKT_protocol = Whiten()
+    else:
+        post_transform = NullTransform(copy=False)
 
     if train_specs is None:
         train_specs = DATA_SPECS
@@ -367,12 +387,17 @@ def get_datasets(  # noqa: C901
         device=device,
     )
 
+    post_transform.fit(train_encoded)
+    train_encoded = post_transform.transform(train_encoded)
+
     valid_encoded, valid_signal, valid_dset_id = _process_table(
         valid_frame,
         feat_type=feat_type,
         int_encoder=enc,
         device=device,
     )
+
+    valid_encoded = post_transform.transform(valid_encoded)
 
     if include_test:
         test_encoded, test_signal, test_dset_id = _process_table(
@@ -381,6 +406,7 @@ def get_datasets(  # noqa: C901
             int_encoder=enc,
             device=device,
         )
+        test_encoded = post_transform.transform(test_encoded)
 
     if graph:
         edge_labels, edge_features = get_graph(
