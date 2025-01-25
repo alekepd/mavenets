@@ -231,6 +231,7 @@ class MetStep:
         beta: float = 1.0,
         center: Optional[torch.Tensor] = None,
         max_distance_to_center: Optional[int] = None,
+        avoid_null_step: bool = True,
         compile: bool = False,
     ) -> None:
         """Store options.
@@ -256,6 +257,11 @@ class MetStep:
             elements, not euclidean distance.
         max_distance_to_center:
             see center argument.
+        avoid_null_step:
+            If True, when looking for steps, any step that suggests no movement is
+            rejected. This should be set to True to accelerate computation, but may
+            be useful for debugging. It should not affect the distribution of
+            configurations targeted.
         compile:
             Whether to use torch.compile to speed up computation. Usually improves
             performance, but may make debugging harder.
@@ -279,6 +285,7 @@ class MetStep:
         else:
             self.bcast_center = torch.unsqueeze(center, 0)
         self.max_distance_to_center = max_distance_to_center
+        self.avoid_null_step = avoid_null_step
 
     def _step(self, inp: State) -> State:
         """Return new simulation state."""
@@ -302,6 +309,12 @@ class MetStep:
         if self.bcast_center is not None:
             # get which samples would be far
             mask = num_changes(self.bcast_center, cands) <= self.max_distance_to_center
+            # boolean and
+            acceptances = acceptances * mask
+
+        if self.avoid_null_step:
+            # num_changes is only positive when we actually move
+            mask = torch.sign(num_changes(torch.unsqueeze(start, 0), cands))
             # boolean and
             acceptances = acceptances * mask
 
