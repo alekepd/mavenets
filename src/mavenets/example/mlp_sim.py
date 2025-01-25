@@ -115,7 +115,7 @@ def get_mlp(
     return model, report[0], report[1]
 
 
-def test_sim(beta: float = -1.0, use_exp_zero: bool = True) -> pd.DataFrame:
+def test_sim(beta: float = -10.0, use_exp_zero: bool = True) -> pd.DataFrame:
     """Trains an MLP and runs a simulation with it.
 
     Arguments:
@@ -132,7 +132,7 @@ def test_sim(beta: float = -1.0, use_exp_zero: bool = True) -> pd.DataFrame:
     Returns:
     -------
     A DataFrame containing the results of the simulation: amino acid choices for
-    each position, the energy of each recorded sequence, and the simultation time step
+    each position, the energy of each recorded sequence, and the simulation time step
     at which the sequence was found.
 
     """
@@ -141,7 +141,7 @@ def test_sim(beta: float = -1.0, use_exp_zero: bool = True) -> pd.DataFrame:
     NATIVE_BIAS: Final = 0.95
 
     # length of simulation
-    N_SIM_STEPS: Final = 50000000
+    N_SIM_STEPS: Final = 500000
 
     # maximum number of mutations to allow in the simulation.
     MAX_NUM_MUTATIONS: Final = 9
