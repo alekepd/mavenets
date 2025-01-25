@@ -176,6 +176,7 @@ class HeadLock(nn.Module):
 
     def __init__(self, model: MHTuner[Tensor], head_index: Union[int, Tensor]) -> None:
         """Store model and head index."""
+        super().__init__()
         self.model = model
         self.register_buffer("head_index", as_tensor(head_index))
 
