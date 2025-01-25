@@ -115,7 +115,7 @@ def get_mlp(
     return model, report[0], report[1]
 
 
-def test_sim(beta: float = -100.0, use_exp_zero: bool = True) -> pd.DataFrame:
+def test_sim(beta: float = -1000.0, use_exp_zero: bool = True) -> pd.DataFrame:
     """Trains an MLP and runs a simulation with it.
 
     Arguments:
