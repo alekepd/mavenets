@@ -7,7 +7,6 @@ the model prior to head calibration as well.
 """
 from typing import Final, Tuple, Sequence
 import torch
-from torch import nn
 import pandas as pd  # type: ignore
 from ..data import (
     get_datasets,
@@ -16,9 +15,10 @@ from ..data import (
     SARS_COV2_SEQ,
     int_to_floatonehot,
 )
-from ..network import MLP, SharedFanTuner
+from ..network import MLP, SharedFanTuner, MHTuner
 from ..tools import train_tunable_model
 from ..sample import BiasedIntMutate, MetSim
+from ..report import predict
 
 torch.manual_seed(1337)
 # This accelerates computations on certain classes of GPUs at the cost of
@@ -42,7 +42,7 @@ def get_mlp(
     n_epochs: int = 175,  # number of epochs to train for
     grad_clip: int = 300,
     fan_size: int = 16,  # hyperparameter of tuning heads
-) -> Tuple[nn.Module, int, float]:
+) -> Tuple[MHTuner, int, float]:
     """Train and MLP and return it.
 
     Note that per-experiment heads are using during training.
@@ -115,7 +115,9 @@ def get_mlp(
     return model, report[0], report[1]
 
 
-def test_sim(beta: float = -35.0, use_exp_zero: bool = True) -> pd.DataFrame:
+def test_sim(
+    beta: float = -35.0, use_exp_zero: bool = True
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Trains an MLP and runs a simulation with it.
 
     Arguments:
@@ -123,6 +125,7 @@ def test_sim(beta: float = -35.0, use_exp_zero: bool = True) -> pd.DataFrame:
     beta:
         distribution targeted is proportional to exp(-beta U(x)) (plus the native bias)
         where U is the neural network. If we want _high_ U, beta should be negative.
+        Make it smaller in _magnitude_ increases diversity.
     use_exp_zero:
         Multihead models require a sequence and experiment id to provide an answer.
         However, MCMC only operates on sequence. If this option is True, we force
@@ -131,9 +134,10 @@ def test_sim(beta: float = -35.0, use_exp_zero: bool = True) -> pd.DataFrame:
 
     Returns:
     -------
-    A DataFrame containing the results of the simulation: amino acid choices for
-    each position, the energy of each recorded sequence, and the simulation time step
-    at which the sequence was found.
+    Pair of DataFrames. First DataFrame contains the results of the
+    simulation: amino acid choices for each position, the energy of each
+    recorded sequence, and the simulation time step at which the sequence was
+    found. Second frame contains predictions on the validation set.
 
     """
     # bias is between 0 and 1. 1 forces the simulation to stay at the native state,
@@ -148,7 +152,7 @@ def test_sim(beta: float = -35.0, use_exp_zero: bool = True) -> pd.DataFrame:
 
     # beta IS AN ARGUMENT TO THIS FUNCTION! If you want to look for sequences with a
     # _high_ energy, it should be a negative number. Physical intuition then comes by
-    # thinking about it with its sign flipped as a "temperature", so very negative
+    # thinking about it with its sign flipped as a "temperature", so slightly negative
     # values mean a smoother landscape (analogous to a higher temperature).
 
     # train single model for a selected architecture.
@@ -211,18 +215,24 @@ def test_sim(beta: float = -35.0, use_exp_zero: bool = True) -> pd.DataFrame:
         # run simulation; frames contains the result
         frames = sim.run(N_SIM_STEPS, device=DEVICE)
 
-    # frames is a list of
+    # frames is a list of simulation outputs. It has the sequences, energies,
+    # etc--- here we make the same data a bit easier to read for analysis.
 
     # decode the observed sequences from integers to strings
     sequences = enc.batch_decode([x.sequence for x in frames])
 
     # create table summarizing results
-    df = pd.DataFrame([list(x) for x in sequences])
-    df.columns = ["p" + str(x) for x in df.columns]
-    df["time"] = [x.index for x in frames]
-    df["energy"] = [x.energy for x in frames]
+    sim_table = pd.DataFrame([list(x) for x in sequences])
+    sim_table.columns = ["p" + str(x) for x in sim_table.columns]
+    sim_table["time"] = [x.index for x in frames]
+    sim_table["energy"] = [x.energy for x in frames]
 
-    return df
+    # create table summarizing predictive accuracy of model
+    # we only provide predictions on val set.
+    _, eval_data = get_datasets(device=DEVICE, feat_type="onehot")
+    pred_table = predict(model=model, dataset=eval_data, batch_size=1024)
+
+    return sim_table, pred_table
 
 
 if __name__ == "__main__":
