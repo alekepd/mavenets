@@ -367,7 +367,7 @@ class MetSim:
         self,
         model: Callable[[torch.Tensor], torch.Tensor],
         proposer: Callable[[torch.Tensor, int], torch.Tensor],
-        batch_size: int = 128,
+        batch_size: int = 512,
         beta: float = 1.0,
         center: Optional[torch.Tensor] = None,
         max_distance_to_center: Optional[int] = None,
