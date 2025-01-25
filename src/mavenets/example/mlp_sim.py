@@ -141,7 +141,7 @@ def test_sim(beta: float = -1000.0, use_exp_zero: bool = True) -> pd.DataFrame:
     NATIVE_BIAS: Final = 0.95
 
     # length of simulation
-    N_SIM_STEPS: Final = 100000
+    N_SIM_STEPS: Final = 5000000
 
     # maximum number of mutations to allow in the simulation.
     MAX_NUM_MUTATIONS: Final = 9
