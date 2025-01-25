@@ -44,7 +44,7 @@ implemented in different child classes which define the tuning procedure.
 
 from typing import Callable, overload, Union, Tuple, Literal, TypeVar, Generic
 from .base import BaseFFN
-from torch import nn, Tensor
+from torch import nn, Tensor, as_tensor, full
 
 _model_T = Callable[[Tensor], Tensor]
 _T = TypeVar("_T")
@@ -145,6 +145,46 @@ class MHTuner(nn.Module, Generic[_T]):
             "You are probably trying to use MHTuner directly, which is a child class. "
             "Inherit the class and override the tune method."
         )
+
+    def create_singlehead_model(self, head_index: int) -> "HeadLock":
+        """Create wrapped version of self that fixes the selected tuning head.
+
+        This method will only work if the underlying module beneath the tuner
+        accepts tensor input for the inp argument.
+
+        Arguments:
+        ---------
+        head_index:
+            Index determining which head to use.
+
+        Returns:
+        -------
+        HeadLock instance that sets the model.
+
+        """
+        # technically not type safe since HeadLock only works if the
+        # underlying model uses a tensor-based input.
+        return HeadLock(self, head_index=head_index)  # type: ignore
+
+
+class HeadLock(nn.Module):
+    """Wrapper which fixed tuner head used for evaluation.
+
+    Useful to transform a multi-head model to a single-head model.
+
+    """
+
+    def __init__(self, model: MHTuner[Tensor], head_index: Union[int, Tensor]) -> None:
+        """Store model and head index."""
+        self.model = model
+        self.register_buffer("head_index", as_tensor(head_index))
+
+    def forward(self, inp: Tensor) -> Tensor:
+        """Evaluate model with locked head index value."""
+        derived_heads = full(
+            size=(inp.shape[0],), fill_value=self.head_index, device=inp.device
+        )
+        return self.model.forward(inp=inp, head_index=derived_heads, return_raw=False)
 
 
 class NullTuner(MHTuner[_T]):
