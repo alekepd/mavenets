@@ -174,16 +174,16 @@ class HeadLock(nn.Module):
 
     """
 
-    def __init__(self, model: MHTuner[Tensor], head_index: Union[int, Tensor]) -> None:
+    def __init__(self, model: MHTuner[Tensor], head_index: int) -> None:
         """Store model and head index."""
         super().__init__()
         self.model = model
-        self.register_buffer("head_index", as_tensor(head_index))
+        self.head_index = head_index
 
     def forward(self, inp: Tensor) -> Tensor:
         """Evaluate model with locked head index value."""
         derived_heads = full(
-            size=(inp.shape[0],), fill_value=self.head_index, device=inp.device
+            size=inp.shape[0:1], fill_value=self.head_index, device=inp.device
         )
         return self.model.forward(inp=inp, head_index=derived_heads, return_raw=False)
 
