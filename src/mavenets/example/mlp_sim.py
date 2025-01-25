@@ -2,12 +2,11 @@
 
 This example trains a MLP from scratch and then uses it for simulation. It could be 
 adapted to instead load a pre-trained model and use that for simulation. The simulation
-is done on the raw (non-tuned) output of the MLP, but training is done using tuning 
-heads.
+is performed setting the experiment head to 0, but comments show how to use
+the model prior to head calibration as well.
 """
 from typing import Final, Tuple, Sequence
 import torch
-from torch import nn
 import pandas as pd  # type: ignore
 from ..data import (
     get_datasets,
@@ -16,9 +15,10 @@ from ..data import (
     SARS_COV2_SEQ,
     int_to_floatonehot,
 )
-from ..network import MLP, SharedFanTuner
+from ..network import MLP, SharedFanTuner, MHTuner
 from ..tools import train_tunable_model
 from ..sample import BiasedIntMutate, MetSim
+from ..report import predict
 
 torch.manual_seed(1337)
 # This accelerates computations on certain classes of GPUs at the cost of
@@ -42,13 +42,10 @@ def get_mlp(
     n_epochs: int = 175,  # number of epochs to train for
     grad_clip: int = 300,
     fan_size: int = 16,  # hyperparameter of tuning heads
-) -> Tuple[nn.Module, int, float]:
+) -> Tuple[MHTuner, int, float]:
     """Train and MLP and return it.
 
-    Note that per-experiment heads are using during training, but the underlying network
-    without any tuning heads is returned. This is what the simulation is then run on.
-    Alternatively, one could wrap the model with the tuning heads intact and fix the
-    tuning head used.
+    Note that per-experiment heads are using during training.
 
     Arguments specify training options for the MLP.
 
@@ -113,13 +110,14 @@ def get_mlp(
         progress_bar=True,
     )
 
-    # now return the model _WITHOUT_ the tuning part. We also return basic information
-    # on the training run.
+    # now return the multi-head model and basic reports.
 
-    return underlying_model, report[0], report[1]
+    return model, report[0], report[1]
 
 
-def test_sim(beta: float = -100.0) -> pd.DataFrame:
+def test_sim(
+    beta: float = -35.0, use_exp_zero: bool = True
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Trains an MLP and runs a simulation with it.
 
     Arguments:
@@ -127,12 +125,19 @@ def test_sim(beta: float = -100.0) -> pd.DataFrame:
     beta:
         distribution targeted is proportional to exp(-beta U(x)) (plus the native bias)
         where U is the neural network. If we want _high_ U, beta should be negative.
+        Make it smaller in _magnitude_ increases diversity.
+    use_exp_zero:
+        Multihead models require a sequence and experiment id to provide an answer.
+        However, MCMC only operates on sequence. If this option is True, we force
+        the experiment index to be 0 during the MCMC. If False, we instead perform
+        MCMC using the shared-across-experiment prediction (before calibration).
 
     Returns:
     -------
-    A DataFrame containing the results of the simulation: amino acid choices for
-    each position, the energy of each recorded sequence, and the simultation time step
-    at which the sequence was found.
+    Pair of DataFrames. First DataFrame contains the results of the
+    simulation: amino acid choices for each position, the energy of each
+    recorded sequence, and the simulation time step at which the sequence was
+    found. Second frame contains predictions on the validation set.
 
     """
     # bias is between 0 and 1. 1 forces the simulation to stay at the native state,
@@ -140,19 +145,18 @@ def test_sim(beta: float = -100.0) -> pd.DataFrame:
     NATIVE_BIAS: Final = 0.95
 
     # length of simulation
-    N_SIM_STEPS: Final = 100000
+    N_SIM_STEPS: Final = 5000000
 
     # maximum number of mutations to allow in the simulation.
     MAX_NUM_MUTATIONS: Final = 9
 
     # beta IS AN ARGUMENT TO THIS FUNCTION! If you want to look for sequences with a
     # _high_ energy, it should be a negative number. Physical intuition then comes by
-    # thinking about it with its sign flipped as a "temperature", so very negative
+    # thinking about it with its sign flipped as a "temperature", so slightly negative
     # values mean a smoother landscape (analogous to a higher temperature).
 
     # train single model for a selected architecture.
-    # raw_model is the model without the tuning head.
-    raw_model, best_epoch, best_val = get_mlp(hidden_layer_sizes=(32,), n_epochs=30)
+    model, best_epoch, best_val = get_mlp(hidden_layer_sizes=(32,), n_epochs=30)
     print("best epoch", best_epoch)
     print("best score", best_val)
 
@@ -167,14 +171,33 @@ def test_sim(beta: float = -100.0) -> pd.DataFrame:
         # an unknown amino acid. We probably don't want to sample that.
         mut = BiasedIntMutate(0, 20, bias=NATIVE_BIAS, center=center_seq)
 
-        # the MLP we trained is defined to operate on one-hot encodings, but
-        # the simulation operates on integer encodings. We wrap the MLP with a
-        # featurizer to make it work on integer encodings.
-        def _wrapped_model(x: torch.Tensor) -> torch.Tensor:
-            # int_to_floatonehot converts from integers to onehots
-            # even though we don't want to sample the 21st symbol
-            # the MLP has the dimensionality for it, so we use 21 here.
-            return raw_model(int_to_floatonehot(x, 21))
+        if use_exp_zero:
+            # this creates a wrapped model that forces the selected calibration
+            # head (usually determined by experiment) to be 0
+            fixed_model = model.create_singlehead_model(head_index=0)
+
+            # the MLP we trained is defined to operate on one-hot encodings, but
+            # the simulation operates on integer encodings. We wrap the MLP with a
+            # featurizer to make it work on integer encodings.
+            def _wrapped_model(x: torch.Tensor) -> torch.Tensor:
+                # int_to_floatonehot converts from integers to onehots
+                # even though we don't want to sample the 21st symbol
+                # the MLP has the dimensionality for it, so we use 21 here.
+                return fixed_model(int_to_floatonehot(x, 21))
+
+        else:
+            # instead of wrapping by fixing the head index, we extract the portion
+            # of the model before the calibration heads
+            raw_model = model.base_model
+
+            # the MLP we trained is defined to operate on one-hot encodings, but
+            # the simulation operates on integer encodings. We wrap the MLP with a
+            # featurizer to make it work on integer encodings.
+            def _wrapped_model(x: torch.Tensor) -> torch.Tensor:
+                # int_to_floatonehot converts from integers to onehots
+                # even though we don't want to sample the 21st symbol
+                # the MLP has the dimensionality for it, so we use 21 here.
+                return raw_model(int_to_floatonehot(x, 21))
 
         # create simulation. This is where the maximum mutation count
         # is given. Note that here the mutations are calculated relative to the
@@ -192,18 +215,24 @@ def test_sim(beta: float = -100.0) -> pd.DataFrame:
         # run simulation; frames contains the result
         frames = sim.run(N_SIM_STEPS, device=DEVICE)
 
-    # frames is a list of
+    # frames is a list of simulation outputs. It has the sequences, energies,
+    # etc--- here we make the same data a bit easier to read for analysis.
 
     # decode the observed sequences from integers to strings
     sequences = enc.batch_decode([x.sequence for x in frames])
 
     # create table summarizing results
-    df = pd.DataFrame([list(x) for x in sequences])
-    df.columns = ["p" + str(x) for x in df.columns]
-    df["time"] = [x.index for x in frames]
-    df["energy"] = [x.energy for x in frames]
+    sim_table = pd.DataFrame([list(x) for x in sequences])
+    sim_table.columns = ["p" + str(x) for x in sim_table.columns]
+    sim_table["time"] = [x.index for x in frames]
+    sim_table["energy"] = [x.energy for x in frames]
 
-    return df
+    # create table summarizing predictive accuracy of model
+    # we only provide predictions on val set.
+    _, eval_data = get_datasets(device=DEVICE, feat_type="onehot")
+    pred_table = predict(model=model, dataset=eval_data, batch_size=1024)
+
+    return sim_table, pred_table
 
 
 if __name__ == "__main__":
