@@ -44,7 +44,7 @@ implemented in different child classes which define the tuning procedure.
 
 from typing import Callable, overload, Union, Tuple, Literal, TypeVar, Generic
 from .base import BaseFFN
-from torch import nn, Tensor, as_tensor, full
+from torch import nn, Tensor, full
 
 _model_T = Callable[[Tensor], Tensor]
 _T = TypeVar("_T")
