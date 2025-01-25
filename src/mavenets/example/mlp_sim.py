@@ -115,7 +115,7 @@ def get_mlp(
     return model, report[0], report[1]
 
 
-def test_sim(beta: float = -10.0, use_exp_zero: bool = True) -> pd.DataFrame:
+def test_sim(beta: float = -30.0, use_exp_zero: bool = True) -> pd.DataFrame:
     """Trains an MLP and runs a simulation with it.
 
     Arguments:
@@ -141,7 +141,7 @@ def test_sim(beta: float = -10.0, use_exp_zero: bool = True) -> pd.DataFrame:
     NATIVE_BIAS: Final = 0.95
 
     # length of simulation
-    N_SIM_STEPS: Final = 500000
+    N_SIM_STEPS: Final = 1000000
 
     # maximum number of mutations to allow in the simulation.
     MAX_NUM_MUTATIONS: Final = 9
