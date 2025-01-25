@@ -2,8 +2,8 @@
 
 This example trains a MLP from scratch and then uses it for simulation. It could be 
 adapted to instead load a pre-trained model and use that for simulation. The simulation
-is done on the raw (non-tuned) output of the MLP, but training is done using tuning 
-heads.
+is performed setting the experiment head to 0, but comments show how to use
+the model prior to head calibration as well.
 """
 from typing import Final, Tuple, Sequence
 import torch
@@ -45,10 +45,7 @@ def get_mlp(
 ) -> Tuple[nn.Module, int, float]:
     """Train and MLP and return it.
 
-    Note that per-experiment heads are using during training, but the underlying network
-    without any tuning heads is returned. This is what the simulation is then run on.
-    Alternatively, one could wrap the model with the tuning heads intact and fix the
-    tuning head used.
+    Note that per-experiment heads are using during training.
 
     Arguments specify training options for the MLP.
 
@@ -113,13 +110,12 @@ def get_mlp(
         progress_bar=True,
     )
 
-    # now return the model _WITHOUT_ the tuning part. We also return basic information
-    # on the training run.
+    # now return the multi-head model and basic reports.
 
-    return underlying_model, report[0], report[1]
+    return model, report[0], report[1]
 
 
-def test_sim(beta: float = -100.0) -> pd.DataFrame:
+def test_sim(beta: float = -100.0, use_exp_zero: bool = True) -> pd.DataFrame:
     """Trains an MLP and runs a simulation with it.
 
     Arguments:
@@ -127,6 +123,11 @@ def test_sim(beta: float = -100.0) -> pd.DataFrame:
     beta:
         distribution targeted is proportional to exp(-beta U(x)) (plus the native bias)
         where U is the neural network. If we want _high_ U, beta should be negative.
+    use_exp_zero:
+        Multihead models require a sequence and experiment id to provide an answer.
+        However, MCMC only operates on sequence. If this option is True, we force
+        the experiment index to be 0 during the MCMC. If False, we instead perform
+        MCMC using the shared-across-experiment prediction (before calibration).
 
     Returns:
     -------
@@ -151,8 +152,7 @@ def test_sim(beta: float = -100.0) -> pd.DataFrame:
     # values mean a smoother landscape (analogous to a higher temperature).
 
     # train single model for a selected architecture.
-    # raw_model is the model without the tuning head.
-    raw_model, best_epoch, best_val = get_mlp(hidden_layer_sizes=(32,), n_epochs=30)
+    model, best_epoch, best_val = get_mlp(hidden_layer_sizes=(32,), n_epochs=30)
     print("best epoch", best_epoch)
     print("best score", best_val)
 
@@ -167,14 +167,33 @@ def test_sim(beta: float = -100.0) -> pd.DataFrame:
         # an unknown amino acid. We probably don't want to sample that.
         mut = BiasedIntMutate(0, 20, bias=NATIVE_BIAS, center=center_seq)
 
-        # the MLP we trained is defined to operate on one-hot encodings, but
-        # the simulation operates on integer encodings. We wrap the MLP with a
-        # featurizer to make it work on integer encodings.
-        def _wrapped_model(x: torch.Tensor) -> torch.Tensor:
-            # int_to_floatonehot converts from integers to onehots
-            # even though we don't want to sample the 21st symbol
-            # the MLP has the dimensionality for it, so we use 21 here.
-            return raw_model(int_to_floatonehot(x, 21))
+        if use_exp_zero:
+            # this creates a wrapped model that forces the selected calibration
+            # head (usually determined by experiment) to be 0
+            fixed_model = model.create_singlehead_model(head_index=0)
+
+            # the MLP we trained is defined to operate on one-hot encodings, but
+            # the simulation operates on integer encodings. We wrap the MLP with a
+            # featurizer to make it work on integer encodings.
+            def _wrapped_model(x: torch.Tensor) -> torch.Tensor:
+                # int_to_floatonehot converts from integers to onehots
+                # even though we don't want to sample the 21st symbol
+                # the MLP has the dimensionality for it, so we use 21 here.
+                return fixed_model(int_to_floatonehot(x, 21))
+
+        else:
+            # instead of wrapping by fixing the head index, we extract the portion
+            # of the model before the calibration heads
+            raw_model = model.base_model
+
+            # the MLP we trained is defined to operate on one-hot encodings, but
+            # the simulation operates on integer encodings. We wrap the MLP with a
+            # featurizer to make it work on integer encodings.
+            def _wrapped_model(x: torch.Tensor) -> torch.Tensor:
+                # int_to_floatonehot converts from integers to onehots
+                # even though we don't want to sample the 21st symbol
+                # the MLP has the dimensionality for it, so we use 21 here.
+                return raw_model(int_to_floatonehot(x, 21))
 
         # create simulation. This is where the maximum mutation count
         # is given. Note that here the mutations are calculated relative to the
