@@ -157,8 +157,6 @@ def test_sim(
 
     # train single model for a selected architecture.
     model, best_epoch, best_val = get_mlp(hidden_layer_sizes=(32,), n_epochs=30)
-    print("best epoch", best_epoch)
-    print("best score", best_val)
 
     with torch.no_grad():
         # create starting sequence, encode to integer form
