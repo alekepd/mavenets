@@ -18,6 +18,9 @@ class _Ident(nn.Module):
 class LRMLP(nn.Module):
     """Linear model with input features augmented by MLP.
 
+    The class name froms from the phrase linear residual mlp, although
+    this is not a standard term.
+
     Data is first processed by a network to produce a vector feature. This
     is then concatenated with the input features and mixed using a linear layer.
 
