@@ -76,14 +76,16 @@ def scan() -> None:
 
     Prints results and writes csv as it runs.
     """
-    WEIGHT_DECAY: Final = 5e-3
+    WEIGHT_DECAYS: Final = [5e-3, 1e-3, 5e-4, 1e-2]
     AUG_SIZES: Final = [1, 2, 3, 4, 8, 16, 32]
-    FAN_SIZES: Final = [8, 10, 16, 2, 4]
-    for aug_size, fan_size in product(AUG_SIZES, FAN_SIZES):
+    FAN_SIZES: Final = [5, 8, 10, 16, 2, 4]
+    for aug_size, fan_size, weight_decay in product(
+        AUG_SIZES, FAN_SIZES, WEIGHT_DECAYS
+    ):
         epoch, val, table = test_lrmlp(
             augment_channel_size=aug_size,
             fan_size=fan_size,
-            weight_decay=WEIGHT_DECAY,
+            weight_decay=weight_decay,
         )
         print(
             aug_size,
@@ -91,7 +93,7 @@ def scan() -> None:
             round(val, 3),
         )
         name = "lrmlp_augsize{}_fansize{}_wdecay{}.csv".format(
-            aug_size, fan_size, WEIGHT_DECAY
+            aug_size, fan_size, weight_decay
         )
         table.to_csv(name)
 
