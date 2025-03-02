@@ -12,7 +12,7 @@ torch.manual_seed(1337)
 torch.set_float32_matmul_precision("high")
 
 DEVICE: Final = "cuda"
-REPORT_STRIDE: Final = 5
+REPORT_STRIDE: Final = 1
 
 
 def test_lrmlp(
