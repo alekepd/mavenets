@@ -62,6 +62,7 @@ def test_lrmlp(
         train_batch_size=batch_size,
         reporting_batch_size=eval_batch_size,
         compile=compile,
+        compile_mode="max-autotune",
         grad_clip=grad_clip,
         report_stride=REPORT_STRIDE,
         progress_bar=True,
