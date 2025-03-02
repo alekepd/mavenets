@@ -92,6 +92,7 @@ def _create_parameterized_train_stepper(
     compile: bool = False,
     compile_mode: Optional[str] = None,
     grad_clip: float = 1e3,
+    call_opt_train: bool = False,
 ) -> ParamTrainEval:
     """Create function that can be called to perform an optimization step.
 
@@ -117,6 +118,9 @@ def _create_parameterized_train_stepper(
         Passed to torch.compile if compile is True.
     grad_clip:
         Gradient norm to clip at.
+    call_opt_train:
+        If true, we call .train() on the _optimizer_ as well. This only possible for 
+        some optimizers, such as those from schedulefree.
 
     Returns:
     -------
@@ -133,6 +137,10 @@ def _create_parameterized_train_stepper(
         reference: torch.Tensor,
         loss_param: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        if call_opt_train:
+            # this call does not work for all torch optimizers, but 
+            # adapting the type hints is not clear right now.
+            optimizer.train() #type: ignore
         model.train()
         with precision_manager(device_type=device, dtype=torch.bfloat16):
             pred = model(inp)
@@ -178,6 +186,8 @@ def _create_parameterized_evaler(
     bfloat16: bool = False,
     compile: bool = False,
     compile_mode: Optional[str] = None,
+    call_opt_eval: bool = False,
+    optimizer: Optional[torch.optim.Optimizer],
 ) -> ParamTrainEval:
     """Create function that can be called to evaluate a nn.Module on to obtain a loss.
 
@@ -203,6 +213,14 @@ def _create_parameterized_evaler(
         If true, compile the returned function.
     compile_mode:
         If compile is True, passed to torch.compile.
+    call_opt_eval:
+        If true, we call .eval() on the _optimizer_ as well. This only possible for 
+        some optimizers, such as those from schedulefree.
+    optimizer:
+        torch.optim optimizer (must already have been initialized) or None. If 
+        call_opt_eval is True, this needs to spec specified to a compatible optimizer.
+        If call_opt_val is False, it is ignored.
+
 
     Returns:
     -------
@@ -215,12 +233,19 @@ def _create_parameterized_evaler(
     else:
         precision_manager = null_contextmanager
 
+    if optimizer is None and call_opt_eval:
+        raise ValueError("call_opt_eval must be False is optimizer is None.")
+
     def _eval(
         inp: Any,
         reference: torch.Tensor,
         loss_param: torch.Tensor,
     ) -> torch.Tensor:
         model.eval()
+        if call_opt_eval:
+            # this call does not work for all torch optimizers, but 
+            # adapting the type hints is not clear right now.
+            optimizer.eval() #type: ignore
         with precision_manager(device_type=device, dtype=torch.bfloat16):
             pred = model(inp)
             loss_value = loss_function(pred, reference, loss_param)
@@ -292,6 +317,7 @@ def train_tunable_model( # noqa: C901
     progress_bar: bool = False,
     patience: int = 50,
     graph: bool = False,
+    trainval_aware_optimizer: bool = False,
 ) -> Tuple[int, float, pd.DataFrame]:
     """Train MHTuner instance.
 
@@ -367,6 +393,10 @@ def train_tunable_model( # noqa: C901
         Treats model as a torch geometric graph neural network. Effectively, if
         model take torch_geometric Data objects as input, this must be True. Changes
         how models are wrapped and objects used for data loading.
+    trainval_aware_optimizer:
+        If true, we call .train() and and .eval() on the optimizer during training. This
+        is only possible for some optimizers, such as those from schedulefree. If you
+        don't know what this means, you can probably set this to False.
 
     Returns:
     -------
@@ -393,6 +423,7 @@ def train_tunable_model( # noqa: C901
         compile=compile,
         compile_mode=compile_mode,
         grad_clip=grad_clip,
+        call_opt_train=trainval_aware_optimizer,
     )
 
     evaler = _create_parameterized_evaler(
@@ -401,6 +432,8 @@ def train_tunable_model( # noqa: C901
         loss_function=report_loss_function,
         compile=compile,
         compile_mode=compile_mode,
+        call_opt_eval=trainval_aware_optimizer,
+        optimizer=optimizer,
     )
 
     if report_datasets is None:
