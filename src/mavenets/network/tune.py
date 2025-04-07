@@ -44,7 +44,7 @@ implemented in different child classes which define the tuning procedure.
 
 from typing import Callable, overload, Union, Tuple, Literal, TypeVar, Generic
 from .base import BaseFFN
-from torch import nn, Tensor, full, atleast_2d
+from torch import nn, Tensor, full
 
 _model_T = Callable[[Tensor], Tensor]
 _T = TypeVar("_T")
@@ -292,7 +292,7 @@ class LinearTuner(MHTuner[_T]):
 
         """
         signal_shape = signal.shape
-        reshaped = atleast_2d(signal)
+        reshaped = signal.view(-1, 1)
         contributions = []
         for exp, cal in enumerate(self.heads):
             individual_corrected = cal(reshaped)
