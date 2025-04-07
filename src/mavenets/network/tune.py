@@ -44,7 +44,7 @@ implemented in different child classes which define the tuning procedure.
 
 from typing import Callable, overload, Union, Tuple, Literal, TypeVar, Generic
 from .base import BaseFFN
-from torch import nn, Tensor, full
+from torch import nn, Tensor, full, atleast_2d
 
 _model_T = Callable[[Tensor], Tensor]
 _T = TypeVar("_T")
@@ -216,6 +216,99 @@ class NullTuner(MHTuner[_T]):
         return signal
 
 
+class LinearTuner(MHTuner[_T]):
+    """Applies a simple linear network tuning.
+
+    This class is built to apply to one-dimensional input (not including batch
+    dimension).
+
+    This model adjusts the output of the core model using a linear model that
+    is specific to each unique integer of input-2.  This corresponds to the
+    following effective structure on each input.
+
+                         <input-1>                      <input-2>
+                             |                              |
+                      <wrapped model>          <select linear tuning head>
+                             |                              |
+                    +--------+                              |
+                    |        |                              |
+                    |        +--<apply linear tuning head>--+
+                    |                       |
+                    |                       |
+               <raw output>           <tuned output>
+
+    `input-2` is interpreted as an index selecting which head to use; as a
+    result, n_heads must represent the length of a list that can be indexed by
+    all integers that might be seen.
+    """
+
+    def __init__(
+        self,
+        base_model: Callable[[_T], Tensor],
+        n_heads: int,
+        residual_connection: bool = True,
+        bias: bool = True,
+    ) -> None:
+        """Store options and initialize layers.
+
+        Note that n_heads must be larger or the same as the largest integer
+        found during runtime in the head_index argument (e.g., if the biggest
+        later found integer is 8, n_heads must be 9).
+
+        Arguments:
+        ---------
+        base_model:
+            Callable to adjust the output of.
+        n_heads:
+            Number of tuning heads to create.
+        residual_connection:
+            Whether to apply adjustment in the form f(x) = correction + x. Typically
+            a good idea for stability of gradient based training.
+        bias:
+            Whether each linear head should have a bias.
+
+        """
+        super().__init__(base_model)
+        self.residual_connection = residual_connection
+        # note that this is n different networks. can be recast
+        # into a vector-valued final linear layer.
+        self.heads = nn.ModuleList([nn.Linear(1, 1, bias=bias) for _ in range(n_heads)])
+
+    def tune(self, signal: Tensor, head_index: Tensor) -> Tensor:
+        """Tune input signal.
+
+        Arguments:
+        ---------
+        signal:
+            Input tensor of shape (n_batch,) or (n_batch,1) (one dimensional input). The
+            returned calibrated data will be of the same size.
+        head_index:
+            Tensor of shape (n_batch,) of integers. Specifies the tuning head to apply
+            to that sample.
+
+        Returns:
+        -------
+        Tuned output (torch.tensor).
+
+        """
+        signal_shape = signal.shape
+        reshaped = atleast_2d(signal)
+        contributions = []
+        for exp, cal in enumerate(self.heads):
+            individual_corrected = cal(reshaped)
+            # create mask that as zeros
+            # might need a view on head_index if we want to be shape robust.
+            mask = (exp == head_index).view(-1, 1)  # type: ignore
+            contr = mask * individual_corrected
+            contributions.append(contr)
+        if self.residual_connection:
+            corrected = sum(contributions) + signal.view(-1, 1)
+        else:
+            corrected = sum(contributions)
+        # accounts for whether the input was shape (batch,) or (batch, 1)
+        return corrected.view(signal_shape)
+
+
 class SharedFanTuner(MHTuner[_T]):
     """Applies a simple shared head-based linear network tuning.
 
@@ -231,18 +324,17 @@ class SharedFanTuner(MHTuner[_T]):
 
                             <input-1>               <input-2>
                                 |                       |
+                          <wrapped model>               |
+                                |                       |
                     +-----------+                       |
-                    |           |                       |
-                    |     <wrapped model>               |
                     |           |                       |
                     |   <fan featurization>  <select tuning head>
                     |           |                       |
                     |           +--<apply tuning head>--+
                     |                      |
-                    |                      |
                <raw output>           <tuned output>
 
-    Here, each tuning head is a simple linear layer. `input-k` is interpreted
+    Here, each tuning head is a simple linear layer. `input-2` is interpreted
     as an index selecting which head to use; as a result, n_heads must represent
     the length of a list that can be indexed by all integers that might be seen.
     """
