@@ -9,7 +9,7 @@ from typing import Final, Tuple
 import torch
 from torch import nn
 import pandas as pd #type: ignore
-from ..data import get_datasets, DATA_SPECS, get_default_int_encoder, SARS_COV2_SEQ
+from ..data import get_datasets, CORE_DATA_SPECS, get_default_int_encoder, SARS_COV2_SEQ
 from ..network import SumTransformer, SharedFanTuner
 from ..tools import train_tunable_model
 from ..sample import BiasedIntMutate, MetSim
@@ -65,7 +65,7 @@ def get_transformer(
 
     # get data that is used for additional reporting in validation curve.
     report_datasets = {}
-    for spec in DATA_SPECS:
+    for spec in CORE_DATA_SPECS:
         _, vdset = get_datasets(
             train_specs=[spec],
             val_specs=[spec],
@@ -126,13 +126,13 @@ def test_sim(beta: float = -10.0) -> pd.DataFrame:
     Arguments:
     ---------
     beta:
-        distribution targeted is proportional to exp(-beta U(x)) (plus the native bias) 
+        distribution targeted is proportional to exp(-beta U(x)) (plus the native bias)
         where U is the neural network. If we want _high_ U, beta should be negative.
 
     Returns:
     -------
     A DataFrame containing the results of the simulation: amino acid choices for
-    each position, the energy of each recorded sequence, and the simultation time step 
+    each position, the energy of each recorded sequence, and the simultation time step
     at which the sequence was found.
 
     """
@@ -171,7 +171,7 @@ def test_sim(beta: float = -10.0) -> pd.DataFrame:
         # run simulation; frames contains the result
         frames = sim.run(N_SIM_STEPS, device=DEVICE)
 
-    # frames is a list of 
+    # frames is a list of
 
     # decode the observed sequences from integers to strings
     sequences = enc.batch_decode([x.sequence for x in frames])

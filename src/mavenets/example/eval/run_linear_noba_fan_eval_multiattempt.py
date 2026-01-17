@@ -14,7 +14,7 @@ from typing import Final, List, Tuple
 from itertools import product
 import torch
 import pandas as pd  # type: ignore
-from ...data import get_datasets, DATA_SPECS
+from ...data import get_datasets, CORE_DATA_SPECS
 from ...network import MLP, SharedFanTuner
 from ...tools import train_tunable_model
 from ...report import predict
@@ -27,7 +27,7 @@ REPORT_STRIDE: Final = 2
 
 
 def test_linear(
-    fan_size: int, 
+    fan_size: int,
     compile: bool = True,
     batch_size: int = 32,
     eval_batch_size: int = int(2**11),
@@ -47,7 +47,7 @@ def test_linear(
     The first training portion uses data from all experiments. The second part omits
     BA1 and BA2 from the training set and uses BA1 as a validation set.
 
-    This function returns the best_epoch, the best validation score, a model, 
+    This function returns the best_epoch, the best validation score, a model,
     a dataframe describing training, and a dataframe with the test predictions.
     However, the test predictions are obtained from the model at the end of
     training, not that of the returned epoch index. This function primarily makes
@@ -60,7 +60,7 @@ def test_linear(
     train_dataset, valid_dataset = get_datasets(device=DEVICE, feat_type="onehot")
 
     report_datasets = {}
-    for spec in DATA_SPECS:
+    for spec in CORE_DATA_SPECS:
         _, vdset = get_datasets(
             train_specs=[spec], val_specs=[spec], device=DEVICE, feat_type="onehot"
         )
@@ -83,7 +83,7 @@ def test_linear(
         weight_decay=weight_decay,
     )
 
-    # train model with heads. We train for 500 epochs here just to make sure the 
+    # train model with heads. We train for 500 epochs here just to make sure the
     # experiment heads are somewhat trained, but this is a pretty arbitrary value.
     # This is higher than in some MLP runs because the linear models don't overfit.
     best_epoch, best_val, training_record = train_tunable_model(
@@ -104,7 +104,7 @@ def test_linear(
     )
 
     # train is now all datasets except for BA1 and BA2.
-    non_ba_specs = [x for x in DATA_SPECS if x.name not in ["BA1","BA2"]]
+    non_ba_specs = [x for x in CORE_DATA_SPECS if x.name not in ["BA1","BA2"]]
 
     # we use BA1 as the val set.
     train_dataset, valid_dataset = get_datasets(

@@ -1,6 +1,6 @@
 """Train and MLP and run MCMC simulations.
 
-This example trains a MLP from scratch and then uses it for simulation. It could be 
+This example trains a MLP from scratch and then uses it for simulation. It could be
 adapted to instead load a pre-trained model and use that for simulation. The simulation
 is performed setting the experiment head to 0, but comments show how to use
 the model prior to head calibration as well.
@@ -10,7 +10,7 @@ import torch
 import pandas as pd  # type: ignore
 from ..data import (
     get_datasets,
-    DATA_SPECS,
+    CORE_DATA_SPECS,
     get_default_int_encoder,
     SARS_COV2_SEQ,
     int_to_floatonehot,
@@ -62,7 +62,7 @@ def get_mlp(
 
     # get data that is used for additional reporting in validation curve.
     report_datasets = {}
-    for spec in DATA_SPECS:
+    for spec in CORE_DATA_SPECS:
         _, vdset = get_datasets(
             train_specs=[spec],
             val_specs=[spec],

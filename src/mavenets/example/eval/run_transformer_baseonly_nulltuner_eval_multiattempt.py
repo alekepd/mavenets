@@ -1,13 +1,13 @@
 """Evaluate a based-trained fixed transformer architecture on test sets.
 
-The model is trained and evaluated on the base experiment. No per-experiment 
+The model is trained and evaluated on the base experiment. No per-experiment
 heads are used.
 """
 from typing import Final, List, Tuple
 from itertools import product
 import torch
 import pandas as pd  # type: ignore
-from ...data import get_datasets, DATA_SPECS
+from ...data import get_datasets, CORE_DATA_SPECS
 from ...network import SumTransformer, NullTuner
 from ...tools import train_tunable_model
 from ...report import predict
@@ -40,7 +40,7 @@ def test_transformer(
 
     A transformer is trained on data from the base experiment. No experimental head is used.
 
-    This function returns the best_epoch, the best  validation score, a model, 
+    This function returns the best_epoch, the best  validation score, a model,
     a dataframe describing training, and a dataframe with the test predictions.
     However, the test predictions are obtained from the model at the end of
     training, not that of the returned epoch index. This function primarily makes
@@ -53,7 +53,7 @@ def test_transformer(
     train_dataset, valid_dataset = get_datasets(train_specs=['base'], val_specs=['base'], device=DEVICE)
 
     report_datasets = {}
-    for spec in DATA_SPECS:
+    for spec in CORE_DATA_SPECS:
         _, vdset = get_datasets(
             train_specs=[spec], val_specs=[spec], device=DEVICE
         )

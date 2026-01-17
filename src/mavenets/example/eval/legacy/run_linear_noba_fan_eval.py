@@ -14,7 +14,7 @@ from typing import Final, List
 from itertools import product
 import torch
 import pandas as pd  # type: ignore
-from ....data import get_datasets, DATA_SPECS
+from ....data import get_datasets, CORE_DATA_SPECS
 from ....network import MLP, SharedFanTuner
 from ....tools import train_tunable_model
 from ....report import predict
@@ -52,7 +52,7 @@ def test_linear(
     This function returns a model and a dataframe with the test predictions.
     However, the test predictions are obtained from the model at the end of
     training, which may be overtrained. Early stopping is performed, but the model
-    parameters are not rolled back to the optimal epoch after stopping training. 
+    parameters are not rolled back to the optimal epoch after stopping training.
 
     The arguments control the network architecture and training process.
     """
@@ -60,7 +60,7 @@ def test_linear(
     train_dataset, valid_dataset = get_datasets(device=DEVICE, feat_type="onehot")
 
     report_datasets = {}
-    for spec in DATA_SPECS:
+    for spec in CORE_DATA_SPECS:
         _, vdset = get_datasets(
             train_specs=[spec], val_specs=[spec], device=DEVICE, feat_type="onehot"
         )
@@ -97,7 +97,7 @@ def test_linear(
         progress_bar=True,
     )
 
-    non_ba_specs = [x for x in DATA_SPECS if x.name not in ["BA1","BA2"]]
+    non_ba_specs = [x for x in CORE_DATA_SPECS if x.name not in ["BA1","BA2"]]
 
     train_dataset, valid_dataset = get_datasets(
         device=DEVICE,

@@ -12,7 +12,7 @@ import torch
 import pandas as pd  # type: ignore
 from random import Random
 from pathlib import Path
-from ...data import get_datasets, DATA_SPECS
+from ...data import get_datasets, CORE_DATA_SPECS
 from ...network import MLP, NullTuner
 from ...tools import train_tunable_model
 
@@ -59,12 +59,12 @@ def test_mlp(
     grad_clip: int = 300,
 ) -> Tuple[int, float, pd.DataFrame]:
     """Train model and evaluate."""
-    non_ba_specs = [x for x in DATA_SPECS if x.name not in ["BA1","BA2"]]
+    non_ba_specs = [x for x in CORE_DATA_SPECS if x.name not in ["BA1","BA2"]]
 
     train_dataset, valid_dataset = get_datasets(train_specs=non_ba_specs, val_specs=non_ba_specs, device=DEVICE, feat_type="onehot")
 
     report_datasets = {}
-    for spec in DATA_SPECS:
+    for spec in CORE_DATA_SPECS:
         _, vdset = get_datasets(
             train_specs=[spec], val_specs=[spec], device=DEVICE, feat_type="onehot"
         )

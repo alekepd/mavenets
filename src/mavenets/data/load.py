@@ -7,7 +7,7 @@ from torch import Tensor, tensor, float32, int32
 from torch.utils.data import Dataset
 from pathlib import Path
 from torch_geometric.data import Data  # type: ignore
-from .spec import DATA_SPECS, DataSpec, resolve_dataspec, SARSCOV2_FILENAME
+from .spec import CORE_DATA_SPECS, DataSpec, resolve_dataspec, SARSCOV2_FILENAME
 from .featurize import (
     get_alphabet,
     get_default_int_encoder,
@@ -347,13 +347,13 @@ def get_datasets(  # noqa: C901
         post_transform = NullTransform(copy=False)
 
     if train_specs is None:
-        train_specs = DATA_SPECS
+        train_specs = CORE_DATA_SPECS
 
     if val_specs is None:
-        val_specs = DATA_SPECS
+        val_specs = CORE_DATA_SPECS
 
     if test_specs is None:
-        test_specs = DATA_SPECS
+        test_specs = CORE_DATA_SPECS
 
     train_frame = _get_aggregate_mave_csv(
         specs=train_specs, identifier="train_filename", directory=parent_path

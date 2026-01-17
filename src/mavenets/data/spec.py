@@ -1,7 +1,7 @@
 """Contains descriptions of all considered datasets.
 
 Objects here allow data files to be associated with experiment IDs
-and other data attributes. Routines are provided to conveniently 
+and other data attributes. Routines are provided to conveniently
 query available files.
 """
 
@@ -37,7 +37,7 @@ class DataSpec:
     index: int  # positive unique labeling experiment.
 
 
-DATA_SPECS: Final = [
+CORE_DATA_SPECS: Final = [
     DataSpec(
         name="base",
         train_filename=Path("train_data.csv"),
@@ -96,8 +96,75 @@ DATA_SPECS: Final = [
     ),
 ]
 
-MAX_DATASPEC_INDEX: Final = max(x.index for x in DATA_SPECS)
+ALT_DATA_SPECS: Final = [
+    DataSpec(
+        name="base_trainval-rng42",
+        train_filename=Path("train_rng42.csv"),
+        valid_filename=Path("val_rng42.csv"),
+        test_filename=Path("test_data.csv"),
+        index=8,
+    ),
+    DataSpec(
+        name="base_trainval-rng596",
+        train_filename=Path("train_rng596.csv"),
+        valid_filename=Path("val_rng596.csv"),
+        test_filename=Path("test_data.csv"),
+        index=9,
+    ),
+    DataSpec(
+        name="base_trainvaltest-rng789",
+        train_filename=Path("train_fullresplit_rng789.csv"),
+        valid_filename=Path("val_fullresplit_rng789.csv"),
+        test_filename=Path("test_fullresplit_rng789.csv"),
+        index=10,
+    ),
+    DataSpec(
+        name="base_dedup",
+        train_filename=Path("base_dedup_train.csv"),
+        valid_filename=Path("base_dedup_valid.csv"),
+        test_filename=Path("base_dedup_test.csv"),
+        index=11,
+    ),
+    DataSpec(
+        name="base_mutsplit_1",
+        train_filename=Path("base_mut1_train.csv"),
+        valid_filename=Path("base_mut1_valid.csv"),
+        test_filename=Path("test_data.csv"),
+        index=12,
+    ),
+    DataSpec(
+        name="base_mutsplit_12",
+        train_filename=Path("base_mut12_train.csv"),
+        valid_filename=Path("base_mut12_valid.csv"),
+        test_filename=Path("test_data.csv"),
+        index=13,
+    ),
+    DataSpec(
+        name="base_mutsplit_123",
+        train_filename=Path("base_mut123_train.csv"),
+        valid_filename=Path("base_mut123_valid.csv"),
+        test_filename=Path("test_data.csv"),
+        index=14,
+    ),
+    DataSpec(
+        name="base_mutsplit_1234",
+        train_filename=Path("base_mut1234_train.csv"),
+        valid_filename=Path("base_mut1234_valid.csv"),
+        test_filename=Path("test_data.csv"),
+        index=15,
+    ),
+    DataSpec(
+        name="base_mutsplit_12345",
+        train_filename=Path("base_mut12345_train.csv"),
+        valid_filename=Path("base_mut12345_valid.csv"),
+        test_filename=Path("test_data.csv"),
+        index=16,
+    ),
+]
 
+DATA_SPECS: Final = CORE_DATA_SPECS + ALT_DATA_SPECS
+
+MAX_DATASPEC_INDEX: Final = max(x.index for x in DATA_SPECS)
 
 def resolve_dataspec(identifier: Union[str, int, DataSpec]) -> DataSpec:
     """Return data specification matching name or index.
@@ -125,12 +192,22 @@ def resolve_dataspec(identifier: Union[str, int, DataSpec]) -> DataSpec:
 
 def _sanity_check() -> None:
     """Perform basic checks to avoid hard-to-find typographical errors."""
-    # check to make sure no fields are duplicated anywhere
-    _lists = [list(asdict(x).values()) for x in DATA_SPECS]
+    # check to make sure no fields are duplicated anywhere in the core specs
+    _lists = [list(asdict(x).values()) for x in CORE_DATA_SPECS]
     _all = list(chain.from_iterable(_lists))
     assert len(_all) == len(set(_all))
     del _lists
     del _all
+
+    # check to make sure there are no duplicate names in all specs
+    names = [x.name for x in DATA_SPECS]
+    assert len(names) == len(set(names))
+    del names
+
+    # check to make sure there are no duplicate indices in all specs
+    indices = [x.index for x in DATA_SPECS]
+    assert len(indices) == len(set(indices))
+    del indices
 
     # check to make sure that all index ints are >= 0
     assert all(x.index >= 0 for x in DATA_SPECS)

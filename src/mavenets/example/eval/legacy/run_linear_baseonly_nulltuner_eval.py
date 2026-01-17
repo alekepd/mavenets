@@ -1,13 +1,13 @@
 """Evaluate a base-trained linear model on test sets.
 
-The model is trained and evaluated on the base experiment. No per-experiment 
+The model is trained and evaluated on the base experiment. No per-experiment
 heads are used.
 """
 from typing import Final, List
 from itertools import product
 import torch
 import pandas as pd  # type: ignore
-from ....data import get_datasets, DATA_SPECS
+from ....data import get_datasets, CORE_DATA_SPECS
 from ....network import MLP, NullTuner
 from ....tools import train_tunable_model
 from ....report import predict
@@ -42,14 +42,14 @@ def test_mlp(
     This function returns a model and a dataframe with the test predictions.
     However, the test predictions are obtained from the model at the end of
     training, which may be overtrained. Early stopping is performed, but the model
-    parameters are not rolled back to the optimal epoch after stopping training. 
+    parameters are not rolled back to the optimal epoch after stopping training.
 
     The arguments control the network architecture and training process.
     """
     train_dataset, valid_dataset = get_datasets(train_specs=['base'], val_specs=['base'], device=DEVICE, feat_type="onehot")
 
     report_datasets = {}
-    for spec in DATA_SPECS:
+    for spec in CORE_DATA_SPECS:
         _, vdset = get_datasets(
             train_specs=[spec], val_specs=[spec], device=DEVICE, feat_type="onehot"
         )

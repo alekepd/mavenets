@@ -1,22 +1,22 @@
-"""Train (no fan) transformer using prediction accuracy using multiple GPUs.
+"""Train (no fan) mlp using prediction accuracy using multiple GPUs.
 
-The model is trained on the 'base' dataset only.
+The model is trained on the 'base_trainvaltest-rng789' dataset only.
 
 All multijob examples are designed to be run via code similar to that in run_example.py.
 
 The scan function is meant to be called with two arguments. See run_example.py for details.
 """
-from typing import Final, Tuple, Sequence
+from typing import Final, List, Sequence, Tuple
+from itertools import product
 import torch
 import pandas as pd  # type: ignore
-from itertools import product
 from random import Random
 from pathlib import Path
 from ...data import get_datasets, CORE_DATA_SPECS
-from ...network import SumTransformer, NullTuner
+from ...network import MLP, NullTuner
 from ...tools import train_tunable_model
 
-torch._dynamo.config.cache_size_limit = 2096 # type: ignore
+torch._dynamo.config.cache_size_limit = 2096  # type: ignore
 
 torch.manual_seed(1337)
 # tensor cores on
@@ -46,10 +46,10 @@ def get_tasks(
         assert len(breaks) == total_n_replicas + 1
         return procced[breaks[replica] : breaks[replica + 1]]
 
-def test_transformer(
-    n_blocks: int,
-    n_heads: int,
-    embedding_size: int,
+
+
+def test_mlp(
+    hidden_layer_sizes: List[int],
     compile: bool = True,
     batch_size: int = 32,
     eval_batch_size: int = int(2**11),
@@ -57,32 +57,24 @@ def test_transformer(
     weight_decay: float = 0.005,
     n_epochs: int = 1000,
     grad_clip: int = 300,
-    fan_size: int = 16,
-    mha_drop: float = 0.2,
-    transformer_mlp_drop: float = 0.2,
-    n_final_layers: int = 0,
-    final_dropout: float = 0.0,
-) -> Tuple[int,float,pd.DataFrame]:
+) -> Tuple[int, float, pd.DataFrame]:
     """Train model and evaluate."""
 
-    train_dataset, valid_dataset = get_datasets(train_specs=['base'], val_specs=['base'], device=DEVICE)
+    train_dataset, valid_dataset = get_datasets(train_specs=['base_trainvaltest-rng789'], val_specs=['base_trainvaltest-rng789'], device='cuda', feat_type="onehot")
 
     report_datasets = {}
     for spec in CORE_DATA_SPECS:
         _, vdset = get_datasets(
-            train_specs=[spec], val_specs=[spec], device=DEVICE,
+            train_specs=[spec], val_specs=[spec], device=DEVICE, feat_type="onehot"
         )
         report_datasets.update({spec.name: vdset})
 
-    underlying_model = SumTransformer(
-        alphabet_size=256,
-        n_transformers=n_blocks,
-        emb_size=embedding_size,
-        n_heads=n_heads,
-        block_mlp_dropout=transformer_mlp_drop,
-        block_mha_dropout=mha_drop,
-        n_final_layers=n_final_layers,
-        final_dropout=final_dropout,
+    underlying_model = MLP(
+        in_size=21 * 201,
+        out_size=1,
+        hidden_sizes=hidden_layer_sizes,
+        pre_flatten=True,
+        post_squeeze=True,
     )
     model = NullTuner(underlying_model).to(DEVICE)
     opter = torch.optim.AdamW(
@@ -116,56 +108,26 @@ def scan(replica: int, total_n_replicas: int) -> None:
 
     Prints results and writes csv as it runs.
     """
-    assert replica < total_n_replicas
-    n_blocks_ops = (1,2,3,4,5,6)
-    n_heads_ops = (2,4,8,16)
-    emb_size_ops = (16, 32, 64)
-    mha_drop_ops = (0.05,0.1,0.2)
-    mlp_drop_ops = (0.05,0.1,0.2)
-    n_final_layers_ops = (0,1,2,3)
-    weight_decay_ops = (5e-3,1e-3,5e-4)
-    final_dropout_ops = (0.0,0.05,0.1)
-    options = list(product(n_blocks_ops,
-                           n_heads_ops,
-                           emb_size_ops,
-                           mha_drop_ops,
-                           mlp_drop_ops,
-                           n_final_layers_ops,
-                           weight_decay_ops,
-                           final_dropout_ops))
+    #WEIGHT_DECAY: Final = 5e-3
+    weight_decay_ops = (5e-3,1e-3,5e-4,1e-4)
+    learning_rate_ops = (3e-4,1e-4)
+    layer_options = (8, 16, 32, 64, 128, 256)
+    layer_ops = (list(product(layer_options)) +
+                      list(product(layer_options, layer_options)) +
+                      list(product(layer_options, layer_options, layer_options)))
+    options = list(product(layer_ops, weight_decay_ops, learning_rate_ops))
     tasks = get_tasks(data=options,
                       replica=replica,
                       total_n_replicas=total_n_replicas,
                       shuffle=True)
-    for (n_blocks,
-         n_heads,
-         emb_size,
-         mha_drop,
-         mlp_drop,
-         n_final_layers,
-         weight_decay,
-         final_dropout,
-    ) in tasks:
-        name = "b{}_h{}_e{}_wdecay{}_mlpdrop{}_mhadrop{}_flayers{}_fdrop{}.csv".format(
-            n_blocks,
-            n_heads,
-            emb_size,
-            weight_decay,
-            mlp_drop,
-            mha_drop,
-            n_final_layers,
-            final_dropout,
-        )
+
+    for layer_sel,wdecay,lr in tasks:
+        name = "mlp_l{}_wdecay{}_lr{}_base_nulltuner.csv".format(repr(layer_sel), wdecay, lr)
         if Path(name).is_file():
             continue
-        epoch, val, table = test_transformer(
-            n_blocks=n_blocks,
-            n_heads=n_heads,
-            embedding_size=emb_size,
-            weight_decay=weight_decay,
-            mha_drop=mha_drop,
-            transformer_mlp_drop=mlp_drop,
-            n_final_layers=n_final_layers,
-            final_dropout=final_dropout,
+        epoch, val, table = test_mlp(
+            hidden_layer_sizes=layer_sel,
+            weight_decay=wdecay,
+            learning_rate=lr,
         )
         table.to_csv(name)

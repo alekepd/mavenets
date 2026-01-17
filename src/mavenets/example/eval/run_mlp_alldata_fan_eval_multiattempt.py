@@ -1,13 +1,13 @@
 """Evaluate fixed MLP architecture on test sets.
 
-The model is trained and evaluated on all experimental data sources. A 
+The model is trained and evaluated on all experimental data sources. A
 per-experiment fan head is used.
 """
 from typing import Final, List, Tuple
 from itertools import product
 import torch
 import pandas as pd  # type: ignore
-from ...data import get_datasets, DATA_SPECS
+from ...data import get_datasets, CORE_DATA_SPECS
 from ...network import MLP, SharedFanTuner
 from ...tools import train_tunable_model
 from ...report import predict
@@ -21,7 +21,7 @@ REPORT_STRIDE: Final = 2
 
 def test_mlp(
     hidden_layer_sizes: List[int],
-    fan_size: int, 
+    fan_size: int,
     compile: bool = True,
     batch_size: int = 32,
     eval_batch_size: int = int(2**11),
@@ -34,7 +34,7 @@ def test_mlp(
 
     A MLP is trained on data from all experiments. An per-exp fan head is used.
 
-    This function returns the best_epoch, the best  validation score, a model, 
+    This function returns the best_epoch, the best  validation score, a model,
     a dataframe describing training, and a dataframe with the test predictions.
     However, the test predictions are obtained from the model at the end of
     training, not that of the returned epoch index. This function primarily makes
@@ -47,7 +47,7 @@ def test_mlp(
     train_dataset, valid_dataset = get_datasets(device=DEVICE, feat_type="onehot")
 
     report_datasets = {}
-    for spec in DATA_SPECS:
+    for spec in CORE_DATA_SPECS:
         _, vdset = get_datasets(
             train_specs=[spec], val_specs=[spec], device=DEVICE, feat_type="onehot"
         )

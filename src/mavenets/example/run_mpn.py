@@ -2,7 +2,7 @@
 from typing import Final
 import torch
 import pandas as pd  # type: ignore
-from ..data import get_datasets, DATA_SPECS
+from ..data import get_datasets, CORE_DATA_SPECS
 from ..network import SharedFanTuner, GraphNet
 from ..tools import train_tunable_model
 
@@ -38,7 +38,7 @@ def test_mpn(
     )
 
     report_datasets = {}
-    for spec in DATA_SPECS:
+    for spec in CORE_DATA_SPECS:
         _, vdset = get_datasets(
             train_specs=[spec],
             val_specs=[spec],

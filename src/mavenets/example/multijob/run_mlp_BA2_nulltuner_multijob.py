@@ -12,7 +12,7 @@ import torch
 import pandas as pd  # type: ignore
 from random import Random
 from pathlib import Path
-from ...data import get_datasets, DATA_SPECS
+from ...data import get_datasets, CORE_DATA_SPECS
 from ...network import MLP, NullTuner
 from ...tools import train_tunable_model
 
@@ -63,7 +63,7 @@ def test_mlp(
     train_dataset, valid_dataset = get_datasets(train_specs=['BA2'], val_specs=['BA2'], device='cuda', feat_type="onehot")
 
     report_datasets = {}
-    for spec in DATA_SPECS:
+    for spec in CORE_DATA_SPECS:
         _, vdset = get_datasets(
             train_specs=[spec], val_specs=[spec], device=DEVICE, feat_type="onehot"
         )

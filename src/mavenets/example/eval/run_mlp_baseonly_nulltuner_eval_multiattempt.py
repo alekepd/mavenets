@@ -6,7 +6,7 @@ from typing import Final, List, Tuple
 from itertools import product
 import torch
 import pandas as pd  # type: ignore
-from ...data import get_datasets, DATA_SPECS
+from ...data import get_datasets, CORE_DATA_SPECS
 from ...network import MLP, NullTuner
 from ...tools import train_tunable_model
 from ...report import predict
@@ -32,7 +32,7 @@ def test_mlp(
 
     A MLP is trained on data from the base experiment. No experimental head is used.
 
-    This function returns the best_epoch, the best  validation score, a model, 
+    This function returns the best_epoch, the best  validation score, a model,
     a dataframe describing training, and a dataframe with the test predictions.
     However, the test predictions are obtained from the model at the end of
     training, not that of the returned epoch index. This function primarily makes
@@ -45,7 +45,7 @@ def test_mlp(
     train_dataset, valid_dataset = get_datasets(train_specs=['base'], val_specs=['base'], device=DEVICE, feat_type="onehot")
 
     report_datasets = {}
-    for spec in DATA_SPECS:
+    for spec in CORE_DATA_SPECS:
         _, vdset = get_datasets(
             train_specs=[spec], val_specs=[spec], device=DEVICE, feat_type="onehot"
         )

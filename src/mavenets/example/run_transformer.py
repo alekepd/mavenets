@@ -2,7 +2,7 @@
 from typing import Final, Tuple
 import torch
 import pandas as pd  # type: ignore
-from ..data import get_datasets, DATA_SPECS
+from ..data import get_datasets, CORE_DATA_SPECS
 from ..network import SumTransformer, SharedFanTuner
 from ..tools import train_tunable_model
 
@@ -37,7 +37,7 @@ def test_transformer(
     train_dataset, valid_dataset = get_datasets(device=DEVICE)
 
     report_datasets = {}
-    for spec in DATA_SPECS:
+    for spec in CORE_DATA_SPECS:
         _, vdset = get_datasets(
             train_specs=[spec], val_specs=[spec], device=DEVICE,
         )

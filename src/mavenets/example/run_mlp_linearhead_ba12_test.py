@@ -1,13 +1,13 @@
 """BA12 test of MLP with linear tuner.
 
-Test the performance of a MLP with a linear tuner for extrapolation on 
+Test the performance of a MLP with a linear tuner for extrapolation on
 BA12 datasets.
 """
 from typing import Final, Sequence
 from itertools import product
 import torch
 import pandas as pd  # type: ignore
-from ..data import get_datasets, DATA_SPECS
+from ..data import get_datasets, CORE_DATA_SPECS
 from ..network import MLP, LinearTuner
 from ..tools import train_tunable_model
 
@@ -30,10 +30,10 @@ def test_mlp(
     grad_clip: int = 300,
 ) -> pd.DataFrame:
     """Train model and evaluate."""
-    non_ba_specs = [x for x in DATA_SPECS if x.name not in ["BA1","BA2"]]
+    non_ba_specs = [x for x in CORE_DATA_SPECS if x.name not in ["BA1","BA2"]]
 
     report_datasets = {}
-    for spec in DATA_SPECS:
+    for spec in CORE_DATA_SPECS:
         _, vdset = get_datasets(
             train_specs=[spec], val_specs=[spec], device=DEVICE, feat_type="onehot"
         )
@@ -41,8 +41,8 @@ def test_mlp(
 
     train_dataset, valid_dataset = get_datasets(
         device=DEVICE,
-        train_specs=DATA_SPECS,
-        val_specs=DATA_SPECS,
+        train_specs=CORE_DATA_SPECS,
+        val_specs=CORE_DATA_SPECS,
         feat_type="onehot",
     )
 

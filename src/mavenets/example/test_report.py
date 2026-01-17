@@ -1,7 +1,7 @@
 """Train model and create csv of output predictions."""
 from typing import Final, Any, Sequence
 import torch
-from ..data import get_datasets, DATA_SPECS
+from ..data import get_datasets, CORE_DATA_SPECS
 from ..network import MLP, SharedFanTuner
 from ..tools import train_tunable_model
 from ..report import predict
@@ -29,7 +29,7 @@ def test_mlp(
     train_dataset, valid_dataset = get_datasets(device=DEVICE, feat_type="onehot")
 
     report_datasets = {}
-    for spec in DATA_SPECS:
+    for spec in CORE_DATA_SPECS:
         _, vdset = get_datasets(
             train_specs=[spec], val_specs=[spec], device=DEVICE, feat_type="onehot"
         )
