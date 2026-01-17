@@ -101,14 +101,14 @@ ALT_DATA_SPECS: Final = [
         name="base_trainval-rng42",
         train_filename=Path("train_rng42.csv"),
         valid_filename=Path("val_rng42.csv"),
-        test_filename=Path("test.csv"),
+        test_filename=Path("test_data.csv"),
         index=8,
     ),
     DataSpec(
         name="base_trainval-rng596",
         train_filename=Path("train_rng596.csv"),
         valid_filename=Path("val_rng596.csv"),
-        test_filename=Path("test.csv"),
+        test_filename=Path("test_data.csv"),
         index=9,
     ),
     DataSpec(
