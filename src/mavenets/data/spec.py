@@ -125,6 +125,41 @@ ALT_DATA_SPECS: Final = [
         test_filename=Path("base_dedup_test.csv"),
         index=11,
     ),
+    DataSpec(
+        name="base_mutsplit_1",
+        train_filename=Path("base_mut1_train.csv"),
+        valid_filename=Path("base_mut1_valid.csv"),
+        test_filename=Path("test_data.csv"),
+        index=12,
+    ),
+    DataSpec(
+        name="base_mutsplit_12",
+        train_filename=Path("base_mut12_train.csv"),
+        valid_filename=Path("base_mut12_valid.csv"),
+        test_filename=Path("test_data.csv"),
+        index=13,
+    ),
+    DataSpec(
+        name="base_mutsplit_123",
+        train_filename=Path("base_mut123_train.csv"),
+        valid_filename=Path("base_mut123_valid.csv"),
+        test_filename=Path("test_data.csv"),
+        index=14,
+    ),
+    DataSpec(
+        name="base_mutsplit_1234",
+        train_filename=Path("base_mut1234_train.csv"),
+        valid_filename=Path("base_mut1234_valid.csv"),
+        test_filename=Path("test_data.csv"),
+        index=15,
+    ),
+    DataSpec(
+        name="base_mutsplit_12345",
+        train_filename=Path("base_mut12345_train.csv"),
+        valid_filename=Path("base_mut12345_valid.csv"),
+        test_filename=Path("test_data.csv"),
+        index=16,
+    ),
 ]
 
 DATA_SPECS: Final = CORE_DATA_SPECS + ALT_DATA_SPECS
