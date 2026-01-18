@@ -160,6 +160,13 @@ ALT_DATA_SPECS: Final = [
         test_filename=Path("test_data.csv"),
         index=16,
     ),
+    DataSpec(
+        name="small_base",
+        train_filename=Path("small_base_train.csv"),
+        valid_filename=Path("small_base_valid.csv"),
+        test_filename=Path("test_data.csv"),
+        index=17,
+    ),
 ]
 
 DATA_SPECS: Final = CORE_DATA_SPECS + ALT_DATA_SPECS
