@@ -46,7 +46,7 @@ def test_mlp(
 
     # create network
     underlying_model = MLP(
-        in_size=21 * 201,
+        in_size=1024,
         out_size=1,
         hidden_sizes=hidden_layer_sizes,
         pre_flatten=True,
