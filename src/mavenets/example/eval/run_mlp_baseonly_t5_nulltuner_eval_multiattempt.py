@@ -115,7 +115,7 @@ def run(attempt_seeds: Tuple= (1234231, 54636, 2931243)) -> None:
     """
     layer_sel =  [1024,256]
     wdecay = 0.0001
-    n_epochs = 100 # this the max number of epochs considered; early stopping is used.
+    n_epochs = 300 # this the max number of epochs considered; early stopping is used.
     lr = 3e-4
     dropout = 0.3
     batch_size = 128
