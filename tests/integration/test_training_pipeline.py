@@ -65,7 +65,7 @@ class TestEncodingToNetworkPipeline:
         cpu_device: str,
     ) -> None:
         """Test that gradients flow through the pipeline."""
-        sequences = ["ACE", "DEF"]
+        sequences = ["ACED", "DEFA"]
 
         # Encode and convert to one-hot
         encoded = small_encoder.batch_encode(sequences, device=cpu_device)
