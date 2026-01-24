@@ -238,7 +238,7 @@ class BaseFFN(nn.Module):
 
         """
         super().__init__()
-        if hidden_size < 1:
+        if n_hidden < 1:
             raise ValueError("Only a positive number of hidden layers are supported.")
         if global_residual_connection and out_size != in_size:
             raise ValueError(
