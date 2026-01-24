@@ -8,8 +8,6 @@ import pytest
 import torch
 import torch.nn as nn
 
-pytest.importorskip("torch_geometric", reason="torch_geometric required for integration tests")
-
 from mavenets.network.base import MLP
 from mavenets.data.featurize.core import IntEncoder, int_to_floatonehot
 
