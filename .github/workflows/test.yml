@@ -21,10 +21,14 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install dependencies
+      - name: Install PyTorch CPU and PyG dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install torch
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install torch_scatter torch_sparse torch_cluster -f https://data.pyg.org/whl/torch-2.6.0+cpu.html
+
+      - name: Install package and test dependencies
+        run: |
           pip install -e ".[test]"
 
       - name: Run tests (skip GPU and slow tests)
