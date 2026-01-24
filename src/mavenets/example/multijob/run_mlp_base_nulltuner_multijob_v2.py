@@ -126,7 +126,7 @@ def scan(replica: int, total_n_replicas: int) -> None:
                       shuffle=True)
 
     for layer_sel,wdecay,lr,dropout in tasks:
-        name = "mlp_l{}_wdecay{}_lr{}_base_nulltuner.csv".format(repr(layer_sel), wdecay, lr)
+        name = "mlp_l{}_wdecay{}_lr{}_dropout{}_base_nulltuner.csv".format(repr(layer_sel), wdecay, lr, dropout)
         if Path(name).is_file():
             continue
         epoch, val, table = test_mlp(
