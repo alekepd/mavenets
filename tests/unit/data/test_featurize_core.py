@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from mavenets.data.featurize.core import (
+from mavenets.data.featurize.core import (  # type: ignore[import-not-found]
     IntEncoder,
     get_default_int_encoder,
     int_to_floatonehot,

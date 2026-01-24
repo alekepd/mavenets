@@ -4,12 +4,14 @@ These tests verify that components work together correctly.
 They use small models and synthetic data to keep execution fast.
 """
 
+from typing import List
+
 import pytest
 import torch
 import torch.nn as nn
 
-from mavenets.network.base import MLP
-from mavenets.data.featurize.core import IntEncoder, int_to_floatonehot
+from mavenets.network.base import MLP  # type: ignore[import-not-found]
+from mavenets.data.featurize.core import IntEncoder, int_to_floatonehot  # type: ignore[import-not-found]
 
 
 class TestEncodingToNetworkPipeline:
@@ -77,7 +79,7 @@ class TestEncodingToNetworkPipeline:
         # Compute loss and backward
         target = torch.tensor([1.0, 0.5], device=cpu_device)
         loss = nn.functional.mse_loss(output, target)
-        loss.backward()
+        loss.backward()  # type: ignore[no-untyped-call]
 
         # Check gradients exist
         assert flat.grad is not None
@@ -99,7 +101,7 @@ class TestTrainingLoop:
         ).to(cpu_device)
 
         # Create synthetic data
-        torch.manual_seed(42)
+        torch.manual_seed(42)  # type: ignore[no-untyped-call]
         X = torch.randn(50, 10, device=cpu_device)
         y = X[:, 0] + 0.5 * X[:, 1]  # Simple linear relationship
 
@@ -140,7 +142,7 @@ class TestTrainingLoop:
         ).to(cpu_device)
 
         # Very small dataset
-        torch.manual_seed(42)
+        torch.manual_seed(42)  # type: ignore[no-untyped-call]
         X = torch.randn(5, 5, device=cpu_device)
         y = torch.randn(5, device=cpu_device)
 
@@ -169,11 +171,12 @@ class TestMCMCSimulation:
 
     def test_metsim_basic_run(self, cpu_device: str) -> None:
         """Test MetSim can run a basic simulation."""
-        from mavenets.sample.step import MetSim, IntMutate, State
+        from mavenets.sample.step import MetSim, IntMutate, State  # type: ignore[import-not-found]
 
         # Simple energy function (prefer lower values)
         def energy_fn(x: torch.Tensor) -> torch.Tensor:
-            return x.float().mean(dim=-1)
+            result: torch.Tensor = x.float().mean(dim=-1)
+            return result
 
         # Create mutator and simulator
         mutator = IntMutate(min_int=0, max_int=10)
@@ -189,8 +192,8 @@ class TestMCMCSimulation:
         start_seq = torch.tensor([5, 5, 5, 5, 5], device=cpu_device, dtype=torch.int32)
         start_state = State(index=0, sequence=start_seq)
 
-        frames = []
-        state = start_state
+        frames: List[State] = []
+        state: State = start_state
         frames.append(state)
         for _ in range(10):
             state = sim.stepper(state)

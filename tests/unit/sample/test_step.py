@@ -3,11 +3,11 @@
 import pytest
 import torch
 
-from mavenets.sample.step import (
+from mavenets.sample.step import (  # type: ignore[import-not-found]
     State,
     IntMutate,
     BiasedIntMutate,
-    _metropolis_crit,
+    _metropolis_crit,  # type: ignore[private-usage]
 )
 
 

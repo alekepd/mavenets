@@ -1,13 +1,16 @@
 """Provides compatible for some tools from the bioembeddings package."""
 
-from typing import Final, Sequence, Iterable
+from typing import Final, List, Optional, Sequence, Iterable, TypeVar
 from .core import IntEncoder, get_default_int_encoder
 from torch import Tensor
 
 from transformers import T5Tokenizer, T5EncoderModel  # type:ignore
 import torch
 
-def chunks(inp: Sequence, n: int) -> Iterable[Sequence]:
+T = TypeVar("T")
+
+
+def chunks(inp: Sequence[T], n: int) -> Iterable[Sequence[T]]:
     """Yield successive n-sized chunks from inp.
 
     From stack overflow:
@@ -16,33 +19,6 @@ def chunks(inp: Sequence, n: int) -> Iterable[Sequence]:
     """
     for i in range(0, len(inp), n):
         yield inp[i:(i + n)]
-
-
-def _example(device: str = "cuda") -> Tensor:
-    tokenizer = T5Tokenizer.from_pretrained(
-        "Rostlab/prot_t5_xl_half_uniref50-enc", do_lower_case=False
-    )
-
-    # Load the model
-    model = T5EncoderModel.from_pretrained("Rostlab/prot_t5_xl_half_uniref50-enc").to(
-        device
-    )
-
-    # prepare your protein sequences as a list
-    sequence_examples = [" ".join(x) for x in ["PRTEINN", "SEQWENC"]]
-
-    ids = tokenizer(sequence_examples, add_special_tokens=True)
-
-    input_ids = torch.tensor(ids["input_ids"]).to(device)
-    attention_mask = torch.tensor(ids["attention_mask"]).to(device)
-
-    # generate embeddings
-    with torch.no_grad():
-        embedding_repr = model(input_ids=input_ids, attention_mask=attention_mask)
-
-    emb = embedding_repr.last_hidden_state
-
-    return emb
 
 
 class T5EncoderWrapper:
@@ -57,7 +33,7 @@ class T5EncoderWrapper:
 
     def __init__(
         self,
-        integer_encoder: IntEncoder,
+        integer_encoder: Optional[IntEncoder],
         device: str,
         flatten: bool = True,
         per_protein: bool = True,
@@ -93,12 +69,12 @@ class T5EncoderWrapper:
             integer_encoder = get_default_int_encoder()
         self.device = device
         self.flatten = flatten
-        self.tokenizer = T5Tokenizer.from_pretrained(
+        self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(  # type: ignore[reportUnknownMemberType]
             self.T5_huggingface_name, do_lower_case=False
         )
 
         # Load the model
-        self.t5 = T5EncoderModel.from_pretrained(self.T5_huggingface_name).to(device)
+        self.t5: T5EncoderModel = T5EncoderModel.from_pretrained(self.T5_huggingface_name).to(device)  # type: ignore[no-any-return]
         self.integer_encoder = integer_encoder
         self.per_protein = per_protein
         self.batch_size = batch_size
@@ -128,7 +104,7 @@ class T5EncoderWrapper:
         with torch.no_grad():
             embedding_repr = self.t5(input_ids=input_ids, attention_mask=attention_mask)
 
-        emb = embedding_repr.last_hidden_state
+        emb: Tensor = embedding_repr.last_hidden_state
 
         if self.per_protein:
             # average over residues, not batch examples
@@ -155,7 +131,7 @@ class T5EncoderWrapper:
         Returns Tensor with first dimension the batch dimension.
 
         """
-        processed = []
-        for piece in chunks(int_encoded,self.batch_size):
+        processed: List[Tensor] = []
+        for piece in chunks(int_encoded, self.batch_size):
             processed.append(self.vectorized_encode(piece))
-        return torch.concatenate(processed,axis=0) # type: ignore
+        return torch.concatenate(processed, axis=0)  # type: ignore[arg-type]

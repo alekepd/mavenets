@@ -10,6 +10,7 @@ from typing import (
     Optional,
     Protocol,
     Final,
+    cast,
 )
 from functools import lru_cache
 import pandas as pd  # type: ignore
@@ -47,7 +48,8 @@ BASE_ALPHA: Final = [
 
 def get_alphabet(frame: pd.DataFrame, column_name: str) -> List[str]:
     """Return all possible letters."""
-    return sorted(set("".join(frame.loc[:, column_name])))
+    column_values = cast(List[str], list(frame.loc[:, column_name]))  # type: ignore[arg-type]
+    return sorted(set("".join(column_values)))
 
 
 def encoder_dict(alphabet: List[str]) -> Dict[str, int]:
@@ -307,8 +309,9 @@ def int_to_floatonehot(int_form: torch.Tensor, num_classes: int = -1) -> torch.T
     float32 one hot encoding.
 
     """
-    encoded = one_hot(
+    int_encoding: torch.Tensor = one_hot(
         int_form.to(int64),
         num_classes=num_classes,
-    ).to(float32)
+    )
+    encoded: torch.Tensor = int_encoding.to(float32)  # type: ignore[no-any-return]
     return encoded
