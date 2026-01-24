@@ -25,9 +25,9 @@ class TestEncodingToNetworkPipeline:
     @pytest.fixture
     def small_mlp(self, cpu_device: str) -> MLP:
         """Create a small MLP for testing."""
-        # 5 amino acids * 3 positions = 15 input features (one-hot)
+        # 5 amino acids * 4 positions = 20 input features (one-hot)
         return MLP(
-            in_size=15,
+            in_size=20,
             out_size=1,
             hidden_sizes=[8, 4],
             post_squeeze=True,
