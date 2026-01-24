@@ -6,6 +6,10 @@ on:
   push:
     branches: [master]
 
+env:
+  TORCH_VERSION: "2.5.1"
+  PYG_TORCH_VERSION: "2.5.0"
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -21,11 +25,18 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install PyTorch CPU and PyG dependencies
+      - name: Install PyTorch CPU (pinned version)
         run: |
           python -m pip install --upgrade pip
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install torch_scatter torch_sparse torch_cluster -f https://data.pyg.org/whl/torch-2.6.0+cpu.html
+          pip install torch==${{ env.TORCH_VERSION }} --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install PyG extensions (matching torch version)
+        run: |
+          pip install torch_scatter torch_sparse torch_cluster -f https://data.pyg.org/whl/torch-${{ env.PYG_TORCH_VERSION }}+cpu.html
+
+      - name: Install mdtraj dependency
+        run: |
+          pip install mdtraj
 
       - name: Install package and test dependencies
         run: |
