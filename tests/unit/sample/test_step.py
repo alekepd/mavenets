@@ -120,7 +120,7 @@ class TestBiasedIntMutate:
             if diff_mask.any():
                 changed_val = candidates[i][diff_mask][0].item()
                 pos = diff_mask.nonzero()[0].item()
-                assert changed_val == center[pos].item()
+                assert changed_val == center[int(pos)].item()
 
     def test_bias_zero_uses_random(self, cpu_device: str) -> None:
         """With bias=0.0, mutations should use random values."""
