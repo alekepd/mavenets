@@ -40,19 +40,19 @@ class TestEncodingToNetworkPipeline:
         cpu_device: str,
     ) -> None:
         """Test encoding sequences and passing through network."""
-        sequences = ["ACE", "DEF", "ACD"]
+        sequences = ["ACED", "DEFA", "ACDF"]
 
         # Encode sequences
         encoded = small_encoder.batch_encode(sequences, device=cpu_device)
-        assert encoded.shape == (3, 3)
+        assert encoded.shape == (3, 4)
 
         # Convert to one-hot
         onehot = int_to_floatonehot(encoded, num_classes=5)
-        assert onehot.shape == (3, 3, 5)
+        assert onehot.shape == (3, 4, 5)
 
         # Flatten for MLP
         flat = onehot.view(3, -1)
-        assert flat.shape == (3, 15)
+        assert flat.shape == (3, 20)
 
         # Forward pass
         output = small_mlp(flat)
