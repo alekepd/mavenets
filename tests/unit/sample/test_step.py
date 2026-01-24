@@ -3,8 +3,6 @@
 import pytest
 import torch
 
-pytest.importorskip("torch_geometric", reason="torch_geometric required for sample module")
-
 from mavenets.sample.step import (
     State,
     IntMutate,
