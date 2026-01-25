@@ -1,7 +1,7 @@
 """Statistical tests for Monte Carlo algorithms in step.py.
 
 These tests verify that the Metropolis Monte Carlo implementation correctly
-samples from the target Boltzmann distribution p(x) ∝ exp(-β * E(x)).
+samples from the target Boltzmann distribution p(x) proportional to exp(-beta * E(x)).
 We use simple, analytically tractable energy functions where expected
 statistics can be computed.
 """
@@ -44,9 +44,9 @@ def linear_energy():
     """Energy = sum of sequence values.
 
     For a single position with values 0 to n-1:
-    p(x) ∝ exp(-β * x)
+    p(x) proportional to exp(-beta * x)
 
-    Normalizing constant Z = Σ exp(-β * k) for k=0 to n-1
+    Normalizing constant Z = sum of exp(-beta * k) for k=0 to n-1
     """
 
     def energy_fn(x: torch.Tensor) -> torch.Tensor:
@@ -61,7 +61,7 @@ def linear_energy():
 def quadratic_energy():
     """Energy = sum of squared distances from target value 1.
 
-    E(x) = Σ (x_i - 1)^2
+    E(x) = sum of (x_i - 1)^2
     """
     target = 1
 
@@ -255,7 +255,7 @@ class TestEquilibriumDistribution:
     def test_linear_energy_exponential_distribution(
         self, single_position_energy, small_alphabet_proposer
     ):
-        """With E(x)=x, should get exponential distribution p(x) ∝ exp(-βx).
+        """With E(x)=x, should get exponential distribution p(x) proportional to exp(-beta*x).
 
         Uses batch_size=1 to ensure proper Metropolis sampling without the
         bias introduced by taking the first accepted proposal in a batch.
@@ -415,7 +415,7 @@ class TestBetaScaling:
     """Test that temperature (beta) correctly affects the distribution."""
 
     def test_beta_zero_approaches_uniform(self, single_position_energy, small_alphabet_proposer):
-        """With β≈0, distribution should approach uniform."""
+        """With beta near 0, distribution should approach uniform."""
         n_states = 4
         seq_length = 1
         n_steps = 20000
