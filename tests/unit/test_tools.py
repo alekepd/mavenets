@@ -21,7 +21,7 @@ from mavenets.tools import (  # type: ignore[import-not-found]
     SIGNAL_PYGBATCHKEY,
     EXP_PYGBATCHKEY,
 )
-from mavenets.network.tune import NullTuner, LinearTuner  # type: ignore[import-not-found]
+from mavenets.network.tune import LinearTuner  # type: ignore[import-not-found]
 from mavenets.network.base import MLP  # type: ignore[import-not-found]
 
 
