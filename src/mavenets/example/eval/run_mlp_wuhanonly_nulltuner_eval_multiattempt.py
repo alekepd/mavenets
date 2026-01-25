@@ -1,4 +1,4 @@
-"""Evaluate a fixed MLP architecture on test sets while only training on base data.
+"""Evaluate a fixed MLP architecture on test sets while only training on wuhan data.
 
 No per-experiment heads are used.
 """
@@ -6,7 +6,7 @@ from typing import Final, List, Tuple
 from itertools import product
 import torch
 import pandas as pd  # type: ignore
-from ...data import get_datasets, CORE_DATA_SPECS
+from ...data import get_datasets, DATA_SPECS
 from ...network import MLP, NullTuner
 from ...tools import train_tunable_model
 from ...report import predict
@@ -30,9 +30,9 @@ def test_mlp(
 ) -> Tuple:
     """Train model and evaluate on the test set, with quirks.
 
-    A MLP is trained on data from the base experiment. No experimental head is used.
+    A MLP is trained on data from the wuhan experiment. No experimental head is used.
 
-    This function returns the best_epoch, the best  validation score, a model,
+    This function returns the best_epoch, the best  validation score, a model, 
     a dataframe describing training, and a dataframe with the test predictions.
     However, the test predictions are obtained from the model at the end of
     training, not that of the returned epoch index. This function primarily makes
@@ -42,10 +42,10 @@ def test_mlp(
     """
 
     # collate base dataset
-    train_dataset, valid_dataset = get_datasets(train_specs=['base'], val_specs=['base'], device=DEVICE, feat_type="onehot")
+    train_dataset, valid_dataset = get_datasets(train_specs=['wuhan'], val_specs=['wuhan'], device=DEVICE, feat_type="onehot")
 
     report_datasets = {}
-    for spec in CORE_DATA_SPECS:
+    for spec in DATA_SPECS:
         _, vdset = get_datasets(
             train_specs=[spec], val_specs=[spec], device=DEVICE, feat_type="onehot"
         )
@@ -122,10 +122,10 @@ def run(attempt_seeds: Tuple= (1234231, 54636, 2931243)) -> None:
     uses early stopping to determine the optimal number of epochs to use for
     the saved model.
     """
-    layer_sel =  [8, 64, 32]
-    wdecay = 0.0005
+    layer_sel =  [16, 64]
+    wdecay = 0.005
     n_epochs = 300 # this the max number of epochs considered; early stopping is used.
-    lr = 1e-4
+    lr = 3e-4
     record = {}
     for seed in attempt_seeds:
         model, valid, test_pred = helper(
@@ -138,7 +138,7 @@ def run(attempt_seeds: Tuple= (1234231, 54636, 2931243)) -> None:
         record.update({valid: (model, test_pred)})
     best_model, best_table = record[min(record.keys())]
     print("val from random inits:", list(record.keys()))
-    core_name = "TESTEVAL_mlp_l{}_wdecay{}_learningrate{}_baseonly_nulltuner_multiattempt".format(repr(layer_sel), wdecay, lr, n_epochs)
+    core_name = "TESTEVAL_mlp_l{}_wdecay{}_learningrate{}_wuhanonly_nulltuner_multiattempt".format(repr(layer_sel), wdecay, lr, n_epochs)
     best_table.to_csv(core_name+".csv")
     torch.save(best_model, core_name+".pt")
 
