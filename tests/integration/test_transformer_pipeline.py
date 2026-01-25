@@ -260,7 +260,7 @@ class TestTransformerWithOptimizers:
         model.train()
         for _ in range(200):
             optimizer.zero_grad()
-            loss = criterion(pred := model(X), y)
+            loss = criterion(model(X), y)
             loss.backward()
             optimizer.step()
 
@@ -296,11 +296,11 @@ class TestTransformerWithOptimizers:
         loss.backward()
 
         # Clip gradients (as done in examples with grad_clip=300)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=300)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=300)  # type: ignore[attr-defined]
 
         # Check gradients are clipped
         total_norm = torch.sqrt(
-            sum(p.grad.norm() ** 2 for p in model.parameters() if p.grad is not None)
+            torch.stack([p.grad.norm() ** 2 for p in model.parameters() if p.grad is not None]).sum()
         )
         assert total_norm.item() <= 300.01  # Small tolerance for floating point
 

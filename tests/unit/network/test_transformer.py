@@ -227,7 +227,7 @@ class TestSumTransformer:
             n_transformers=1,
         )
         block = model.refiners[0]
-        assert block.mlp[0].out_features == 128
+        assert block.mlp[0].out_features == 128  # type: ignore[union-attr]
 
     def test_forward_shape(self, cpu_device: str) -> None:
         """Forward pass should produce correct output shape."""

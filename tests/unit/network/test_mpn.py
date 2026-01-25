@@ -12,9 +12,10 @@ import torch.nn as nn
 torch_geometric = pytest.importorskip("torch_geometric")
 torch_scatter = pytest.importorskip("torch_scatter")
 
-from torch_geometric.data import Data, Batch  # type: ignore
+# Imports below are after importorskip() to ensure dependencies are available before importing
+from torch_geometric.data import Data, Batch  # type: ignore[import-not-found]  # noqa: E402
 
-from mavenets.network.mpn import Message, GraphNet  # type: ignore[import-not-found]
+from mavenets.network.mpn import Message, GraphNet  # type: ignore[import-not-found]  # noqa: E402
 
 
 class TestMessage:
