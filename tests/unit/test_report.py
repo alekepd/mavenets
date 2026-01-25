@@ -198,7 +198,12 @@ class TestPredict:
         simple_tuner: LinearTuner[torch.Tensor],
         simple_dataset: TensorDataset,
     ) -> None:
-        """Test that different batch sizes produce same results."""
+        """Test that different batch sizes produce same results.
+
+        Uses approximate comparison for floating-point columns since different
+        batch sizes can lead to small numerical differences due to floating-point
+        non-associativity.
+        """
         result_small = predict(
             model=simple_tuner,
             dataset=simple_dataset,
@@ -213,7 +218,9 @@ class TestPredict:
             translate_experiment_ids=False,
             batch_size=100,
         )
-        pd.testing.assert_frame_equal(result_small, result_large)
+        pd.testing.assert_frame_equal(
+            result_small, result_large, check_exact=False, rtol=1e-5
+        )
 
     def test_translate_experiment_ids_false(
         self,
