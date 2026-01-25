@@ -711,7 +711,7 @@ class TestBetaScaling:
 
     def test_higher_beta_lower_energy_mean(self, single_position_energy, small_alphabet_proposer):
         """Higher beta should concentrate distribution on lower energy states."""
-        n_states = 4
+        _n_states = 4  # noqa: F841 - documents alphabet size
         seq_length = 1
         n_steps = 25000
 
@@ -742,7 +742,7 @@ class TestBetaScaling:
 
     def test_variance_decreases_with_beta(self, single_position_energy, small_alphabet_proposer):
         """Higher beta should give lower variance (more concentrated)."""
-        n_states = 4
+        _n_states = 4  # noqa: F841 - documents alphabet size
         seq_length = 1
         n_steps = 25000
 
@@ -849,10 +849,10 @@ class TestProposerStatistics:
             # Find mutated position
             diff_mask = candidates[0] != start
             if diff_mask.any():
-                pos = diff_mask.nonzero(as_tuple=True)[0][0].item()
+                pos = int(diff_mask.nonzero(as_tuple=True)[0][0].item())
                 # Value should be from center
                 assert candidates[0, pos].item() == center[pos].item(), (
-                    f"With bias=1, mutation should use center value"
+                    "With bias=1, mutation should use center value"
                 )
 
     def test_biased_mutate_bias_zero_ignores_center(self):

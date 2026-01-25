@@ -3,8 +3,6 @@
 These tests verify the prediction reporting utilities.
 """
 
-from typing import Tuple
-
 import pytest
 import torch
 import numpy as np
@@ -125,7 +123,7 @@ class TestPredict:
         )
         # Extract y values from dataset
         y_values = simple_dataset.tensors[1].numpy()
-        np.testing.assert_array_almost_equal(result[REFERENCE_KEY].values, y_values)
+        np.testing.assert_array_almost_equal(np.array(result[REFERENCE_KEY].values), y_values)
 
     def test_experiment_ids_match_dataset(
         self,
@@ -142,7 +140,7 @@ class TestPredict:
         )
         # Extract experiment indices from dataset
         exp_values = simple_dataset.tensors[2].numpy()
-        np.testing.assert_array_equal(result[EXPID_KEY].values, exp_values)
+        np.testing.assert_array_equal(np.array(result[EXPID_KEY].values), exp_values)
 
     def test_predictions_are_numeric(
         self,
@@ -173,8 +171,8 @@ class TestPredict:
             translate_experiment_ids=False,
             batch_size=10,
         )
-        assert not result[TUNED_PRED_KEY].isna().any()
-        assert not result[RAW_PRED_KEY].isna().any()
+        assert not bool(result[TUNED_PRED_KEY].isna().any())
+        assert not bool(result[RAW_PRED_KEY].isna().any())
 
     def test_model_set_to_eval_mode(
         self,
@@ -390,7 +388,7 @@ class TestPredictWithTunedModel:
 
         # Tuned and raw predictions should generally differ
         # (unless the tuner learned identity, which is unlikely)
-        tuned = result[TUNED_PRED_KEY].values
-        raw = result[RAW_PRED_KEY].values
+        tuned = np.array(result[TUNED_PRED_KEY].values)
+        raw = np.array(result[RAW_PRED_KEY].values)
         # At least some predictions should differ
         assert not np.allclose(tuned, raw, atol=1e-6)
