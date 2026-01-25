@@ -1,10 +1,30 @@
 """Shared pytest fixtures and configuration for mavenets tests."""
 
 from typing import Tuple
+from unittest.mock import MagicMock
+import sys
 
 import pytest
 import torch
 from torch.utils.data import TensorDataset
+
+
+# Mock torch_geometric if not installed, to allow importing mavenets modules
+# that have torch_geometric imports at module level (tools.py, report.py, etc.)
+# This must happen before any mavenets imports that depend on torch_geometric.
+if "torch_geometric" not in sys.modules:
+    try:
+        import torch_geometric  # noqa: F401
+    except ImportError:
+        # torch_geometric not installed, create mock
+        mock_pyg = MagicMock()
+        mock_pyg_loader = MagicMock()
+        mock_pyg_data = MagicMock()
+        sys.modules["torch_geometric"] = mock_pyg
+        sys.modules["torch_geometric.loader"] = mock_pyg_loader
+        sys.modules["torch_geometric.data"] = mock_pyg_data
+        mock_pyg.loader = mock_pyg_loader
+        mock_pyg.data = mock_pyg_data
 
 
 def create_synthetic_datasets(

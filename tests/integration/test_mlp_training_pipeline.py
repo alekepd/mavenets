@@ -4,23 +4,14 @@ This test mirrors the structure of mavenets/example/run_mlp.py but uses
 synthetic data and smaller models to run quickly on CPU.
 """
 
-from unittest.mock import MagicMock
-import sys
-
 import pytest
 import torch
 from torch.utils.data import TensorDataset
 
-# Mock torch_geometric before importing tools module
-mock_pyg_loader = MagicMock()
-sys.modules["torch_geometric"] = MagicMock()
-sys.modules["torch_geometric.loader"] = mock_pyg_loader
-mock_pyg_loader.DataLoader = MagicMock()
-
-from tests.conftest import create_synthetic_datasets  # noqa: E402
-from mavenets.network.base import MLP  # type: ignore[import-not-found]  # noqa: E402
-from mavenets.network.tune import SharedFanTuner, LinearTuner  # type: ignore[import-not-found]  # noqa: E402
-from mavenets.tools import train_tunable_model  # type: ignore[import-not-found]  # noqa: E402
+from tests.conftest import create_synthetic_datasets
+from mavenets.network.base import MLP  # type: ignore[import-not-found]
+from mavenets.network.tune import SharedFanTuner, LinearTuner  # type: ignore[import-not-found]
+from mavenets.tools import train_tunable_model  # type: ignore[import-not-found]
 
 
 @pytest.mark.integration

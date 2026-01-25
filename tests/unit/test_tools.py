@@ -4,21 +4,14 @@ These tests verify the training utilities and helper functions.
 """
 
 from typing import Tuple
-from unittest.mock import Mock, MagicMock, patch
-import sys
+from unittest.mock import Mock
 
 import pytest
 import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset
 
-# Mock torch_geometric before importing tools module
-mock_pyg_loader = MagicMock()
-sys.modules["torch_geometric"] = MagicMock()
-sys.modules["torch_geometric.loader"] = mock_pyg_loader
-mock_pyg_loader.DataLoader = MagicMock()
-
-from mavenets.tools import (  # type: ignore[import-not-found]  # noqa: E402
+from mavenets.tools import (  # type: ignore[import-not-found]
     mixed_MSE,
     _create_parameterized_train_stepper,
     _create_parameterized_evaler,
@@ -28,8 +21,8 @@ from mavenets.tools import (  # type: ignore[import-not-found]  # noqa: E402
     SIGNAL_PYGBATCHKEY,
     EXP_PYGBATCHKEY,
 )
-from mavenets.network.tune import NullTuner, LinearTuner  # type: ignore[import-not-found]  # noqa: E402
-from mavenets.network.base import MLP  # type: ignore[import-not-found]  # noqa: E402
+from mavenets.network.tune import NullTuner, LinearTuner  # type: ignore[import-not-found]
+from mavenets.network.base import MLP  # type: ignore[import-not-found]
 
 
 class TestMixedMSE:

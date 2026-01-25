@@ -4,8 +4,6 @@ These tests verify the prediction reporting utilities.
 """
 
 from typing import Tuple
-from unittest.mock import MagicMock, patch
-import sys
 
 import pytest
 import torch
@@ -13,21 +11,15 @@ import numpy as np
 from torch.utils.data import TensorDataset
 import pandas as pd
 
-# Mock torch_geometric before importing report module
-mock_pyg_loader = MagicMock()
-sys.modules["torch_geometric"] = MagicMock()
-sys.modules["torch_geometric.loader"] = mock_pyg_loader
-mock_pyg_loader.DataLoader = MagicMock()
-
-from mavenets.report import (  # type: ignore[import-not-found]  # noqa: E402
+from mavenets.report import (  # type: ignore[import-not-found]
     predict,
     REFERENCE_KEY,
     TUNED_PRED_KEY,
     RAW_PRED_KEY,
     EXPID_KEY,
 )
-from mavenets.network.tune import LinearTuner  # type: ignore[import-not-found]  # noqa: E402
-from mavenets.network.base import MLP  # type: ignore[import-not-found]  # noqa: E402
+from mavenets.network.tune import LinearTuner  # type: ignore[import-not-found]
+from mavenets.network.base import MLP  # type: ignore[import-not-found]
 
 
 class TestConstants:
