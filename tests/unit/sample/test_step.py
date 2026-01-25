@@ -389,8 +389,13 @@ class TestMetStep:
         assert isinstance(result, State)
 
 
+@pytest.mark.filterwarnings("ignore:jump_stride=.*:UserWarning")
 class TestMetSim:
-    """Tests for MetSim class."""
+    """Tests for MetSim class.
+
+    Note: These tests use jump_stride > 1 to test functionality, not equilibrium
+    statistics. The warning about jump_stride is suppressed for this class.
+    """
 
     @pytest.fixture
     def simple_energy_fn(self, cpu_device: str) -> callable:
