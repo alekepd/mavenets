@@ -3,9 +3,7 @@
 import pytest
 import torch
 
-pytest.importorskip("torch_geometric", reason="torch_geometric required for data module")
-
-from mavenets.data.featurize.core import (
+from mavenets.data.featurize.core import (  # type: ignore[import-not-found]
     IntEncoder,
     get_default_int_encoder,
     int_to_floatonehot,

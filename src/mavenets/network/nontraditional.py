@@ -9,7 +9,7 @@ class _Ident(nn.Module):
     """Module that does nothing."""
 
     def __init__(self) -> None:
-        pass
+        super().__init__()
 
     def forward(self, inp: torch.Tensor) -> torch.Tensor:
         return inp

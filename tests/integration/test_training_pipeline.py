@@ -4,14 +4,14 @@ These tests verify that components work together correctly.
 They use small models and synthetic data to keep execution fast.
 """
 
+from typing import List
+
 import pytest
 import torch
 import torch.nn as nn
 
-pytest.importorskip("torch_geometric", reason="torch_geometric required for integration tests")
-
-from mavenets.network.base import MLP
-from mavenets.data.featurize.core import IntEncoder, int_to_floatonehot
+from mavenets.network.base import MLP  # type: ignore[import-not-found]
+from mavenets.data.featurize.core import IntEncoder, int_to_floatonehot  # type: ignore[import-not-found]
 
 
 class TestEncodingToNetworkPipeline:
@@ -25,9 +25,9 @@ class TestEncodingToNetworkPipeline:
     @pytest.fixture
     def small_mlp(self, cpu_device: str) -> MLP:
         """Create a small MLP for testing."""
-        # 5 amino acids * 3 positions = 15 input features (one-hot)
+        # 5 amino acids * 4 positions = 20 input features (one-hot)
         return MLP(
-            in_size=15,
+            in_size=20,
             out_size=1,
             hidden_sizes=[8, 4],
             post_squeeze=True,
@@ -40,19 +40,19 @@ class TestEncodingToNetworkPipeline:
         cpu_device: str,
     ) -> None:
         """Test encoding sequences and passing through network."""
-        sequences = ["ACE", "DEF", "ACD"]
+        sequences = ["ACED", "DEFA", "ACDF"]
 
         # Encode sequences
         encoded = small_encoder.batch_encode(sequences, device=cpu_device)
-        assert encoded.shape == (3, 3)
+        assert encoded.shape == (3, 4)
 
         # Convert to one-hot
         onehot = int_to_floatonehot(encoded, num_classes=5)
-        assert onehot.shape == (3, 3, 5)
+        assert onehot.shape == (3, 4, 5)
 
         # Flatten for MLP
         flat = onehot.view(3, -1)
-        assert flat.shape == (3, 15)
+        assert flat.shape == (3, 20)
 
         # Forward pass
         output = small_mlp(flat)
@@ -65,7 +65,7 @@ class TestEncodingToNetworkPipeline:
         cpu_device: str,
     ) -> None:
         """Test that gradients flow through the pipeline."""
-        sequences = ["ACE", "DEF"]
+        sequences = ["ACED", "DEFA"]
 
         # Encode and convert to one-hot
         encoded = small_encoder.batch_encode(sequences, device=cpu_device)
@@ -79,7 +79,7 @@ class TestEncodingToNetworkPipeline:
         # Compute loss and backward
         target = torch.tensor([1.0, 0.5], device=cpu_device)
         loss = nn.functional.mse_loss(output, target)
-        loss.backward()
+        loss.backward()  # type: ignore[no-untyped-call]
 
         # Check gradients exist
         assert flat.grad is not None
@@ -101,7 +101,7 @@ class TestTrainingLoop:
         ).to(cpu_device)
 
         # Create synthetic data
-        torch.manual_seed(42)
+        torch.manual_seed(42)  # type: ignore[no-untyped-call]
         X = torch.randn(50, 10, device=cpu_device)
         y = X[:, 0] + 0.5 * X[:, 1]  # Simple linear relationship
 
@@ -142,7 +142,7 @@ class TestTrainingLoop:
         ).to(cpu_device)
 
         # Very small dataset
-        torch.manual_seed(42)
+        torch.manual_seed(42)  # type: ignore[no-untyped-call]
         X = torch.randn(5, 5, device=cpu_device)
         y = torch.randn(5, device=cpu_device)
 
@@ -171,11 +171,12 @@ class TestMCMCSimulation:
 
     def test_metsim_basic_run(self, cpu_device: str) -> None:
         """Test MetSim can run a basic simulation."""
-        from mavenets.sample.step import MetSim, IntMutate, State
+        from mavenets.sample.step import MetSim, IntMutate, State  # type: ignore[import-not-found]
 
         # Simple energy function (prefer lower values)
         def energy_fn(x: torch.Tensor) -> torch.Tensor:
-            return x.float().mean(dim=-1)
+            result: torch.Tensor = x.float().mean(dim=-1)
+            return result
 
         # Create mutator and simulator
         mutator = IntMutate(min_int=0, max_int=10)
@@ -191,8 +192,8 @@ class TestMCMCSimulation:
         start_seq = torch.tensor([5, 5, 5, 5, 5], device=cpu_device, dtype=torch.int32)
         start_state = State(index=0, sequence=start_seq)
 
-        frames = []
-        state = start_state
+        frames: List[State] = []
+        state: State = start_state
         frames.append(state)
         for _ in range(10):
             state = sim.stepper(state)

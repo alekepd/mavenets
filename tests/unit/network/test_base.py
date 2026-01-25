@@ -4,9 +4,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-pytest.importorskip("torch_scatter", reason="torch_scatter required for network module")
-
-from mavenets.network.base import ELULinear, FFLayer, BaseFFN, MLP
+from mavenets.network.base import ELULinear, FFLayer, BaseFFN, MLP  # type: ignore[import-not-found]
 
 
 class TestELULinear:

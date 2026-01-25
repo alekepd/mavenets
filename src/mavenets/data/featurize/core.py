@@ -10,6 +10,7 @@ from typing import (
     Optional,
     Protocol,
     Final,
+    cast,
 )
 from functools import lru_cache
 import pandas as pd  # type: ignore
@@ -47,7 +48,8 @@ BASE_ALPHA: Final = [
 
 def get_alphabet(frame: pd.DataFrame, column_name: str) -> List[str]:
     """Return all possible letters."""
-    return sorted(set("".join(frame.loc[:, column_name])))
+    column_values = cast(List[str], list(frame.loc[:, column_name]))  # type: ignore[arg-type]
+    return sorted(set("".join(column_values)))
 
 
 def encoder_dict(alphabet: List[str]) -> Dict[str, int]:
@@ -117,7 +119,19 @@ class _p_encode(Protocol):
 
 
 class _p_decode(Protocol):
-    def __call__(self, target: Iterable[int], cast: bool = True) -> str:
+    @overload
+    def __call__(
+        self, target: Union[Iterable[int], torch.Tensor], cast: Literal[True] = ...
+    ) -> str:
+        ...
+
+    @overload
+    def __call__(self, target: Iterable[int], cast: Literal[False] = ...) -> str:
+        ...
+
+    def __call__(
+        self, target: Union[Iterable[int], torch.Tensor], cast: bool = True
+    ) -> str:
         ...
 
 
@@ -193,7 +207,17 @@ class IntEncoder:
         else:
             return encoded
 
-    def _decode(self, target: Iterable[int], cast: bool = True) -> str:
+    @overload
+    def _decode(
+        self, target: Union[Iterable[int], torch.Tensor], cast: Literal[True] = ...
+    ) -> str:
+        ...
+
+    @overload
+    def _decode(self, target: Iterable[int], cast: Literal[False] = ...) -> str:
+        ...
+
+    def _decode(self, target: Union[Iterable[int], torch.Tensor], cast: bool = True) -> str:
         """Decode single example.
 
         Translates from integers to a string.
@@ -201,9 +225,11 @@ class IntEncoder:
         Arguments:
         ---------
         target:
-           Iterable of integers to transform into a string.
+           Iterable of integers or a torch.Tensor to transform into a string.
         cast:
-            If True, we cal int() on each symbol for attempting lookup.
+            If True, we call int() on each symbol before attempting lookup.
+            Note that when passing a Tensor, cast must be True, as it is used to look
+            up a dictionary keyed by ints.
 
         Returns:
         -------
@@ -213,9 +239,12 @@ class IntEncoder:
         if cast:
             return "".join([self.decode_map[int(x)] for x in target])
         else:
-            return "".join([self.decode_map[x] for x in target])
+            # cast=False overload guarantees target is Iterable[int]
+            return "".join([self.decode_map[x] for x in target])  # type: ignore[index]
 
-    def batch_decode(self, target: Iterable[Iterable[int]]) -> List[str]:
+    def batch_decode(
+        self, target: Union[Iterable[Iterable[int]], torch.Tensor]
+    ) -> List[str]:
         """Decode iterable of examples.
 
         Translates from integers to strings.
@@ -223,14 +252,14 @@ class IntEncoder:
         Arguments:
         ---------
         target:
-           Iterable of integers to transform into a string.
+           Iterable of integer iterables or a 2D Tensor to transform into strings.
 
         Returns:
         -------
         List of strings.
 
         """
-        return [self.decode(x) for x in target]
+        return [self.decode(x, cast=True) for x in target]
 
     def batch_encode(
         self, targets: Iterable[str], device: Optional[str] = None
@@ -280,8 +309,9 @@ def int_to_floatonehot(int_form: torch.Tensor, num_classes: int = -1) -> torch.T
     float32 one hot encoding.
 
     """
-    encoded = one_hot(
+    int_encoding: torch.Tensor = one_hot(
         int_form.to(int64),
         num_classes=num_classes,
-    ).to(float32)
+    )
+    encoded: torch.Tensor = int_encoding.to(float32)  # type: ignore[no-any-return]
     return encoded
