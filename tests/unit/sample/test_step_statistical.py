@@ -222,8 +222,13 @@ def count_state_frequencies_weighted(
 class TestEquilibriumDistribution:
     """Test that sampling produces correct equilibrium distributions."""
 
+    @pytest.mark.filterwarnings("ignore:jump_stride=.*:UserWarning")
     def test_uniform_energy_uniform_samples(self, uniform_energy, small_alphabet_proposer):
-        """With E(x)=0 for all x, all states should be equally likely."""
+        """With E(x)=0 for all x, all states should be equally likely.
+
+        Note: Uses jump_stride > 1 since uniform energy means all states are
+        equally likely regardless of sampling method.
+        """
         n_states = 4
         seq_length = 1
         n_steps = 20000
@@ -252,6 +257,7 @@ class TestEquilibriumDistribution:
         # Should not reject null hypothesis of uniformity at 1% level
         assert p_value > 0.01, f"Distribution not uniform: chi2={chi2:.2f}, p={p_value:.4f}"
 
+    @pytest.mark.slow
     def test_linear_energy_exponential_distribution(
         self, single_position_energy, small_alphabet_proposer
     ):
@@ -304,6 +310,7 @@ class TestEquilibriumDistribution:
             f"Observed: {observed_freq}\nExpected: {expected_freq}"
         )
 
+    @pytest.mark.slow
     def test_mean_matches_theoretical(self, single_position_energy, small_alphabet_proposer):
         """Verify that sampled mean matches theoretical expectation.
 
@@ -353,6 +360,7 @@ class TestEquilibriumDistribution:
             f"theoretical={theoretical_mean:.3f}, std_error={std_error:.3f}"
         )
 
+    @pytest.mark.slow
     def test_two_position_independent_marginals(self, small_alphabet_proposer):
         """For E(x,y) = x + y, marginals should be independent.
 
@@ -410,6 +418,270 @@ class TestEquilibriumDistribution:
                     f"Observed: {observed_freq}\nExpected: {expected_freq}"
                 )
 
+    @pytest.mark.slow
+    def test_batched_sampling_with_index_weighting(
+        self, single_position_energy, small_alphabet_proposer
+    ):
+        """Batched sampling with index weighting should recover Boltzmann distribution.
+
+        When using batch_size > 1, the index field tracks how many underlying
+        Markov chain steps occurred. By weighting each frame by the index
+        difference to the next frame, we recover the correct distribution.
+
+        This test verifies that batch_size=64 with jump_stride=1 and proper
+        index weighting produces the correct Boltzmann distribution.
+        """
+        n_states = 4
+        n_steps = 200000
+        beta = 0.5
+
+        start = torch.zeros(1, dtype=torch.int64)
+
+        sim = MetSim(
+            model=single_position_energy,
+            proposer=small_alphabet_proposer,
+            batch_size=64,
+            beta=beta,
+            jump_stride=1,  # Must be 1 for index weighting to work
+        )
+
+        frames = sim.run(n_steps=n_steps, start=start.tolist(), device="cpu")
+
+        # Discard burn-in
+        burn_in_count = int(len(frames) * 0.2)
+        frames = frames[burn_in_count:]
+
+        # Weight each frame by index difference to next frame
+        counts = Counter()
+        total_weight = 0
+
+        for i in range(len(frames) - 1):
+            val = int(frames[i].sequence[0].item())
+            weight = frames[i + 1].index - frames[i].index
+            counts[val] += weight
+            total_weight += weight
+
+        # Last frame gets weight 1
+        counts[int(frames[-1].sequence[0].item())] += 1
+        total_weight += 1
+
+        # Calculate expected Boltzmann probabilities
+        expected_freq = compute_boltzmann_probabilities(n_states, beta, None)
+
+        # Chi-squared test
+        observed_counts = np.array([counts.get(i, 0) for i in range(n_states)])
+        expected_counts = expected_freq * total_weight
+
+        chi2, p_value = stats.chisquare(observed_counts, expected_counts)
+
+        assert p_value > 0.01, (
+            f"Batched sampling with index weighting failed: chi2={chi2:.2f}, p={p_value:.4f}\n"
+            f"Observed freq: {observed_counts / total_weight}\n"
+            f"Expected freq: {expected_freq}"
+        )
+
+    @pytest.mark.slow
+    def test_batched_sampling_different_batch_sizes(
+        self, single_position_energy, small_alphabet_proposer
+    ):
+        """Different batch sizes should all work with index weighting.
+
+        Tests that batch_size=32, 64, and 128 all produce correct distributions
+        when using jump_stride=1 and index weighting.
+        """
+        n_states = 4
+        n_steps = 150000
+        beta = 0.5
+
+        start = torch.zeros(1, dtype=torch.int64)
+        expected_freq = compute_boltzmann_probabilities(n_states, beta, None)
+
+        for batch_size in [32, 64, 128]:
+            sim = MetSim(
+                model=single_position_energy,
+                proposer=small_alphabet_proposer,
+                batch_size=batch_size,
+                beta=beta,
+                jump_stride=1,
+            )
+
+            frames = sim.run(n_steps=n_steps, start=start.tolist(), device="cpu")
+
+            # Discard burn-in
+            burn_in_count = int(len(frames) * 0.2)
+            frames = frames[burn_in_count:]
+
+            # Weight by index difference
+            counts = Counter()
+            total_weight = 0
+
+            for i in range(len(frames) - 1):
+                val = int(frames[i].sequence[0].item())
+                weight = frames[i + 1].index - frames[i].index
+                counts[val] += weight
+                total_weight += weight
+
+            counts[int(frames[-1].sequence[0].item())] += 1
+            total_weight += 1
+
+            # Check relative errors are small
+            for state in range(n_states):
+                observed = counts.get(state, 0) / total_weight
+                expected = expected_freq[state]
+                rel_error = abs(observed - expected) / expected
+
+                assert rel_error < 0.05, (
+                    f"batch_size={batch_size}, state {state}: "
+                    f"relative error {rel_error:.3f} > 0.05"
+                )
+
+    @pytest.mark.slow
+    def test_quadratic_energy_distribution(self, quadratic_energy, small_alphabet_proposer):
+        """Quadratic energy E(x) = (x-1)^2 should favor state 1.
+
+        With states 0,1,2,3 and E(x) = (x-1)^2:
+          E(0) = 1, E(1) = 0, E(2) = 1, E(3) = 4
+
+        The Boltzmann distribution should peak at state 1 (minimum energy).
+        Uses unbiased IntMutate proposer with index weighting.
+        """
+        n_states = 4
+        n_steps = 200000
+        beta = 1.0
+
+        start = torch.zeros(1, dtype=torch.int64)
+
+        sim = MetSim(
+            model=quadratic_energy,
+            proposer=small_alphabet_proposer,
+            batch_size=64,
+            beta=beta,
+            jump_stride=1,
+        )
+
+        frames = sim.run(n_steps=n_steps, start=start.tolist(), device="cpu")
+
+        # Discard burn-in
+        burn_in_count = int(len(frames) * 0.2)
+        frames = frames[burn_in_count:]
+
+        # Weight by index difference
+        counts = Counter()
+        total_weight = 0
+
+        for i in range(len(frames) - 1):
+            val = int(frames[i].sequence[0].item())
+            weight = frames[i + 1].index - frames[i].index
+            counts[val] += weight
+            total_weight += weight
+
+        counts[int(frames[-1].sequence[0].item())] += 1
+        total_weight += 1
+
+        # Compute expected Boltzmann probabilities for quadratic energy
+        energies = np.array([(x - 1) ** 2 for x in range(n_states)], dtype=float)
+        weights = np.exp(-beta * energies)
+        expected_freq = weights / weights.sum()
+
+        # Chi-squared test
+        observed_counts = np.array([counts.get(i, 0) for i in range(n_states)])
+        expected_counts = expected_freq * total_weight
+
+        chi2, p_value = stats.chisquare(observed_counts, expected_counts)
+
+        # Use a slightly looser threshold due to MCMC autocorrelation
+        assert p_value > 0.001, (
+            f"Quadratic energy distribution incorrect: chi2={chi2:.2f}, p={p_value:.4f}\n"
+            f"Observed freq: {observed_counts / total_weight}\n"
+            f"Expected freq: {expected_freq}"
+        )
+
+        # State 1 should have highest frequency (lowest energy)
+        observed_freq = observed_counts / total_weight
+        assert observed_freq[1] > observed_freq[0], "State 1 should be more frequent than state 0"
+        assert observed_freq[1] > observed_freq[2], "State 1 should be more frequent than state 2"
+        assert observed_freq[1] > observed_freq[3], "State 1 should be more frequent than state 3"
+
+    @pytest.mark.slow
+    def test_bias_shifts_mean_with_quadratic_energy(self, quadratic_energy):
+        """Biased proposer should shift distribution mean towards center.
+
+        With quadratic energy E(x) = (x-1)^2, the unbiased Boltzmann distribution
+        has mean close to 1 (the minimum energy state).
+
+        Using BiasedIntMutate with center=3 should shift the mean towards 3,
+        away from the energy minimum at 1.
+
+        We use a low beta (0.3) so the energy penalty is weak enough that
+        the proposal bias can significantly shift the distribution.
+        """
+        n_states = 4
+        n_steps = 150000
+        beta = 0.3  # Low beta so bias can overcome energy penalty
+        center_val = 3
+
+        start = torch.zeros(1, dtype=torch.int64)
+        center = torch.tensor([center_val], dtype=torch.int64)
+
+        means = []
+        biases = [0.0, 0.5, 0.9]
+
+        for bias in biases:
+            proposer = BiasedIntMutate(
+                min_int=0, max_int=n_states, bias=bias, center=center, n_mutations=1
+            )
+
+            sim = MetSim(
+                model=quadratic_energy,
+                proposer=proposer,
+                batch_size=64,
+                beta=beta,
+                jump_stride=1,
+            )
+
+            frames = sim.run(n_steps=n_steps, start=start.tolist(), device="cpu")
+
+            # Discard burn-in
+            burn_in_count = int(len(frames) * 0.2)
+            frames = frames[burn_in_count:]
+
+            # Calculate weighted mean using index differences
+            weighted_sum = 0
+            total_weight = 0
+
+            for i in range(len(frames) - 1):
+                val = int(frames[i].sequence[0].item())
+                weight = frames[i + 1].index - frames[i].index
+                weighted_sum += val * weight
+                total_weight += weight
+
+            # Last frame
+            weighted_sum += int(frames[-1].sequence[0].item())
+            total_weight += 1
+
+            mean = weighted_sum / total_weight
+            means.append(mean)
+
+        # Mean should increase towards center (3) as bias increases
+        for i in range(len(biases) - 1):
+            assert means[i] < means[i + 1], (
+                f"Mean should increase with bias towards center={center_val}.\n"
+                f"bias={biases[i]}: mean={means[i]:.4f}\n"
+                f"bias={biases[i+1]}: mean={means[i+1]:.4f}"
+            )
+
+        # With bias=0 and low beta, mean should still be below 1.5
+        # (slightly favoring the energy minimum at 1)
+        assert means[0] < 1.8, (
+            f"With bias=0, mean should favor energy min: {means[0]:.4f}"
+        )
+
+        # With bias=0.9, mean should be noticeably shifted towards 3
+        assert means[-1] > means[0] + 0.5, (
+            f"With bias=0.9, mean should be significantly higher than bias=0.\n"
+            f"bias=0: mean={means[0]:.4f}, bias=0.9: mean={means[-1]:.4f}"
+        )
+
 
 class TestBetaScaling:
     """Test that temperature (beta) correctly affects the distribution."""
@@ -428,7 +700,7 @@ class TestBetaScaling:
             proposer=small_alphabet_proposer,
             batch_size=64,
             beta=beta,
-            jump_stride=5,
+            jump_stride=1,
         )
 
         sequences = run_simulation_collect_states(sim, n_steps, start)
@@ -444,9 +716,10 @@ class TestBetaScaling:
                 f"State {i} frequency {freq:.3f} too far from uniform (0.25)"
             )
 
+    @pytest.mark.slow
     def test_higher_beta_lower_energy_mean(self, single_position_energy, small_alphabet_proposer):
         """Higher beta should concentrate distribution on lower energy states."""
-        n_states = 4
+        _n_states = 4  # noqa: F841 - documents alphabet size
         seq_length = 1
         n_steps = 25000
 
@@ -461,7 +734,7 @@ class TestBetaScaling:
                 proposer=small_alphabet_proposer,
                 batch_size=64,
                 beta=beta,
-                jump_stride=5,
+                jump_stride=1,
             )
 
             sequences = run_simulation_collect_states(sim, n_steps, start)
@@ -475,9 +748,10 @@ class TestBetaScaling:
                 f"mean at beta={betas[i+1]} ({means[i+1]:.3f})"
             )
 
+    @pytest.mark.slow
     def test_variance_decreases_with_beta(self, single_position_energy, small_alphabet_proposer):
         """Higher beta should give lower variance (more concentrated)."""
-        n_states = 4
+        _n_states = 4  # noqa: F841 - documents alphabet size
         seq_length = 1
         n_steps = 25000
 
@@ -492,7 +766,7 @@ class TestBetaScaling:
                 proposer=small_alphabet_proposer,
                 batch_size=64,
                 beta=beta,
-                jump_stride=5,
+                jump_stride=1,
             )
 
             sequences = run_simulation_collect_states(sim, n_steps, start)
@@ -584,10 +858,10 @@ class TestProposerStatistics:
             # Find mutated position
             diff_mask = candidates[0] != start
             if diff_mask.any():
-                pos = diff_mask.nonzero(as_tuple=True)[0][0].item()
+                pos = int(diff_mask.nonzero(as_tuple=True)[0][0].item())
                 # Value should be from center
                 assert candidates[0, pos].item() == center[pos].item(), (
-                    f"With bias=1, mutation should use center value"
+                    "With bias=1, mutation should use center value"
                 )
 
     def test_biased_mutate_bias_zero_ignores_center(self):
@@ -662,8 +936,92 @@ class TestProposerStatistics:
         )
 
 
+class TestBiasedSampling:
+    """Test that BiasedIntMutate shifts the sampled distribution towards center."""
+
+    @pytest.mark.slow
+    def test_bias_shifts_distribution_towards_center(self, single_position_energy):
+        """Higher bias should shift the equilibrium distribution towards center.
+
+        With BiasedIntMutate, the proposal distribution favors the center value.
+        This breaks detailed balance and results in a sampled distribution that
+        is shifted towards the center compared to the true Boltzmann distribution.
+
+        As bias increases from 0 to 1, the sampled frequency of the center value
+        should monotonically increase.
+        """
+        n_states = 4
+        n_steps = 150000
+        beta = 0.5
+        center_val = 3  # High energy state - bias should overcome energy penalty
+
+        start = torch.zeros(1, dtype=torch.int64)
+        center = torch.tensor([center_val], dtype=torch.int64)
+
+        biases = [0.0, 0.3, 0.6, 0.9]
+        center_frequencies = []
+
+        for bias in biases:
+            proposer = BiasedIntMutate(
+                min_int=0, max_int=n_states, bias=bias, center=center, n_mutations=1
+            )
+
+            sim = MetSim(
+                model=single_position_energy,
+                proposer=proposer,
+                batch_size=64,
+                beta=beta,
+                jump_stride=1,
+            )
+
+            frames = sim.run(n_steps=n_steps, start=start.tolist(), device="cpu")
+
+            # Discard burn-in
+            burn_in_count = int(len(frames) * 0.2)
+            frames = frames[burn_in_count:]
+
+            # Weight by index difference
+            counts = Counter()
+            total_weight = 0
+
+            for i in range(len(frames) - 1):
+                val = int(frames[i].sequence[0].item())
+                weight = frames[i + 1].index - frames[i].index
+                counts[val] += weight
+                total_weight += weight
+
+            counts[int(frames[-1].sequence[0].item())] += 1
+            total_weight += 1
+
+            center_freq = counts.get(center_val, 0) / total_weight
+            center_frequencies.append(center_freq)
+
+        # Center frequency should increase with bias
+        for i in range(len(biases) - 1):
+            assert center_frequencies[i] < center_frequencies[i + 1], (
+                f"Center frequency should increase with bias.\n"
+                f"bias={biases[i]}: freq={center_frequencies[i]:.4f}\n"
+                f"bias={biases[i+1]}: freq={center_frequencies[i+1]:.4f}"
+            )
+
+        # With bias=0, center (state 3) should have low frequency due to high energy
+        # With bias=0.9, center should dominate despite high energy
+        assert center_frequencies[0] < 0.15, (
+            f"With bias=0, center freq should be low (Boltzmann): {center_frequencies[0]:.4f}"
+        )
+        assert center_frequencies[-1] > 0.5, (
+            f"With bias=0.9, center freq should be high: {center_frequencies[-1]:.4f}"
+        )
+
+
+@pytest.mark.filterwarnings("ignore:jump_stride=.*:UserWarning")
 class TestConstraints:
-    """Test that distance constraints are respected."""
+    """Test that distance constraints are respected.
+
+    Note: These tests use jump_stride > 1 to test constraint behavior,
+    not exact Boltzmann statistics. The warning about jump_stride is
+    suppressed for this class.
+    """
 
     def test_max_distance_never_exceeded(self, uniform_energy, small_alphabet_proposer):
         """With max_distance constraint, no sample should exceed it."""

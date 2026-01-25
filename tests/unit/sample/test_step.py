@@ -1,9 +1,12 @@
 """Tests for mavenets.sample.step module."""
 
-from typing import List
+from typing import Callable
 
 import pytest
 import torch
+
+# Type alias for energy functions to improve type checker compatibility
+EnergyFn = Callable[[torch.Tensor], torch.Tensor]
 
 from mavenets.sample.step import (  # type: ignore[import-not-found]
     State,
@@ -198,7 +201,7 @@ class TestMetStep:
     """Tests for MetStep class."""
 
     @pytest.fixture
-    def simple_energy_fn(self, cpu_device: str) -> callable:
+    def simple_energy_fn(self, cpu_device: str) -> EnergyFn:
         """Create a simple energy function for testing."""
 
         def energy_fn(x: torch.Tensor) -> torch.Tensor:
@@ -213,7 +216,7 @@ class TestMetStep:
         return IntMutate(min_int=0, max_int=10)
 
     def test_init_basic(
-        self, simple_energy_fn: callable, simple_proposer: IntMutate
+        self, simple_energy_fn: EnergyFn, simple_proposer: IntMutate
     ) -> None:
         """Should initialize with basic parameters."""
         stepper = MetStep(
@@ -228,7 +231,7 @@ class TestMetStep:
         assert stepper.compile is False
 
     def test_init_with_center(
-        self, simple_energy_fn: callable, simple_proposer: IntMutate, cpu_device: str
+        self, simple_energy_fn: EnergyFn, simple_proposer: IntMutate, cpu_device: str
     ) -> None:
         """Should initialize with center sequence."""
         center = torch.tensor([5, 5, 5, 5, 5], device=cpu_device, dtype=torch.int32)
@@ -245,7 +248,7 @@ class TestMetStep:
         assert stepper.bcast_center.shape == (1, 5)
 
     def test_init_center_without_max_distance_raises(
-        self, simple_energy_fn: callable, simple_proposer: IntMutate, cpu_device: str
+        self, simple_energy_fn: EnergyFn, simple_proposer: IntMutate, cpu_device: str
     ) -> None:
         """Should raise error if center provided without max_distance."""
         center = torch.tensor([5, 5, 5, 5, 5], device=cpu_device, dtype=torch.int32)
@@ -258,7 +261,7 @@ class TestMetStep:
             )
 
     def test_step_returns_state(
-        self, simple_energy_fn: callable, simple_proposer: IntMutate, cpu_device: str
+        self, simple_energy_fn: EnergyFn, simple_proposer: IntMutate, cpu_device: str
     ) -> None:
         """Step should return a State object."""
         stepper = MetStep(
@@ -277,7 +280,7 @@ class TestMetStep:
         assert result.sequence.shape == start_seq.shape
 
     def test_step_increments_index(
-        self, simple_energy_fn: callable, simple_proposer: IntMutate, cpu_device: str
+        self, simple_energy_fn: EnergyFn, simple_proposer: IntMutate, cpu_device: str
     ) -> None:
         """Step should always increment the index."""
         stepper = MetStep(
@@ -294,7 +297,7 @@ class TestMetStep:
         assert result.index > start_state.index
 
     def test_call_same_as_step(
-        self, simple_energy_fn: callable, simple_proposer: IntMutate, cpu_device: str
+        self, simple_energy_fn: EnergyFn, simple_proposer: IntMutate, cpu_device: str
     ) -> None:
         """__call__ should behave same as step."""
         stepper = MetStep(
@@ -311,7 +314,7 @@ class TestMetStep:
         assert isinstance(result, State)
 
     def test_step_with_high_beta_accepts_less(
-        self, simple_energy_fn: callable, simple_proposer: IntMutate, cpu_device: str
+        self, simple_energy_fn: EnergyFn, simple_proposer: IntMutate, cpu_device: str
     ) -> None:
         """Higher beta should result in fewer acceptances (stricter)."""
         start_seq = torch.tensor([5, 5, 5, 5, 5], device=cpu_device, dtype=torch.int32)
@@ -341,7 +344,7 @@ class TestMetStep:
         assert isinstance(result_high, State)
 
     def test_step_respects_max_distance(
-        self, simple_energy_fn: callable, cpu_device: str
+        self, simple_energy_fn: EnergyFn, cpu_device: str
     ) -> None:
         """Step should reject moves beyond max_distance_to_center."""
         center = torch.tensor([5, 5, 5, 5, 5], device=cpu_device, dtype=torch.int32)
@@ -368,7 +371,7 @@ class TestMetStep:
             assert diff <= 1
 
     def test_step_avoid_null_step(
-        self, simple_energy_fn: callable, simple_proposer: IntMutate, cpu_device: str
+        self, simple_energy_fn: EnergyFn, simple_proposer: IntMutate, cpu_device: str
     ) -> None:
         """With avoid_null_step=True, should not return identical sequence."""
         stepper = MetStep(
@@ -389,11 +392,16 @@ class TestMetStep:
         assert isinstance(result, State)
 
 
+@pytest.mark.filterwarnings("ignore:jump_stride=.*:UserWarning")
 class TestMetSim:
-    """Tests for MetSim class."""
+    """Tests for MetSim class.
+
+    Note: These tests use jump_stride > 1 to test functionality, not equilibrium
+    statistics. The warning about jump_stride is suppressed for this class.
+    """
 
     @pytest.fixture
-    def simple_energy_fn(self, cpu_device: str) -> callable:
+    def simple_energy_fn(self, cpu_device: str) -> EnergyFn:
         """Create a simple energy function for testing."""
 
         def energy_fn(x: torch.Tensor) -> torch.Tensor:
@@ -407,7 +415,7 @@ class TestMetSim:
         return IntMutate(min_int=0, max_int=10)
 
     def test_init_basic(
-        self, simple_energy_fn: callable, simple_proposer: IntMutate
+        self, simple_energy_fn: EnergyFn, simple_proposer: IntMutate
     ) -> None:
         """Should initialize with basic parameters."""
         sim = MetSim(
@@ -421,7 +429,7 @@ class TestMetSim:
         assert isinstance(sim.stepper, MetStep)
 
     def test_propagate(
-        self, simple_energy_fn: callable, simple_proposer: IntMutate, cpu_device: str
+        self, simple_energy_fn: EnergyFn, simple_proposer: IntMutate, cpu_device: str
     ) -> None:
         """Propagate should advance the chain."""
         sim = MetSim(
@@ -441,7 +449,7 @@ class TestMetSim:
         assert result.index > start_state.index
 
     def test_run_returns_list_of_states(
-        self, simple_energy_fn: callable, simple_proposer: IntMutate, cpu_device: str
+        self, simple_energy_fn: EnergyFn, simple_proposer: IntMutate, cpu_device: str
     ) -> None:
         """Run should return list of State objects."""
         sim = MetSim(
@@ -460,7 +468,7 @@ class TestMetSim:
         assert all(isinstance(f, State) for f in frames)
 
     def test_run_first_frame_is_start(
-        self, simple_energy_fn: callable, simple_proposer: IntMutate, cpu_device: str
+        self, simple_energy_fn: EnergyFn, simple_proposer: IntMutate, cpu_device: str
     ) -> None:
         """First frame should be the starting state."""
         sim = MetSim(
@@ -479,7 +487,7 @@ class TestMetSim:
         assert torch.equal(frames[0].sequence, expected_start)
 
     def test_run_indices_increase(
-        self, simple_energy_fn: callable, simple_proposer: IntMutate, cpu_device: str
+        self, simple_energy_fn: EnergyFn, simple_proposer: IntMutate, cpu_device: str
     ) -> None:
         """Indices should be monotonically increasing."""
         sim = MetSim(
@@ -497,7 +505,7 @@ class TestMetSim:
             assert frames[i].index > frames[i - 1].index
 
     def test_run_stops_after_n_steps(
-        self, simple_energy_fn: callable, simple_proposer: IntMutate, cpu_device: str
+        self, simple_energy_fn: EnergyFn, simple_proposer: IntMutate, cpu_device: str
     ) -> None:
         """Run should stop when index exceeds n_steps."""
         sim = MetSim(
@@ -516,7 +524,7 @@ class TestMetSim:
         assert frames[-1].index > n_steps
 
     def test_run_with_default_start(
-        self, simple_energy_fn: callable, simple_proposer: IntMutate, cpu_device: str
+        self, simple_energy_fn: EnergyFn, simple_proposer: IntMutate, cpu_device: str
     ) -> None:
         """Run should work with default start sequence (SARS-CoV-2)."""
         sim = MetSim(
@@ -535,7 +543,7 @@ class TestMetSim:
         assert frames[0].sequence.shape[0] == 201
 
     def test_run_with_center_constraint(
-        self, simple_energy_fn: callable, cpu_device: str
+        self, simple_energy_fn: EnergyFn, cpu_device: str
     ) -> None:
         """Run should work with center constraint."""
         center = torch.tensor([5, 5, 5, 5, 5], device=cpu_device, dtype=torch.int32)
@@ -560,7 +568,7 @@ class TestMetSim:
             assert diff <= 2
 
     def test_jump_stride_affects_recording(
-        self, simple_energy_fn: callable, simple_proposer: IntMutate, cpu_device: str
+        self, simple_energy_fn: EnergyFn, simple_proposer: IntMutate, cpu_device: str
     ) -> None:
         """Different jump_stride values should affect number of recorded frames."""
         sim_small_stride = MetSim(

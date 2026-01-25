@@ -2,6 +2,7 @@
 
 from typing import Callable, Optional, Sequence, List, Union
 from dataclasses import dataclass
+from warnings import warn
 import torch
 from ..data import get_default_int_encoder, SARS_COV2_SEQ
 from ..util import num_changes
@@ -361,6 +362,27 @@ class MetSim:
 
     Distribution is assumed to be of the form `exp(- beta U(.))`, where
     `U` is a user-supplied callable.  Repeatedly applies MetStep.
+
+    Recovering the Boltzmann Distribution
+    -------------------------------------
+    When using batch_size > 1, the recorded frames do not directly represent
+    samples from the Boltzmann distribution. However, you can recover the
+    correct distribution by weighting each frame by the index difference to
+    the next frame::
+
+        frames = sim.run(n_steps=n_steps, start=start, device=device)
+        counts = Counter()
+        for i in range(len(frames) - 1):
+            state_value = frames[i].sequence[0].item()
+            weight = frames[i + 1].index - frames[i].index
+            counts[state_value] += weight
+
+    This works because the index field tracks the position in the underlying
+    Markov chain, including implicit rejections within batches.
+
+    Warning: This index weighting approach only works correctly when
+    jump_stride=1. With jump_stride > 1, intermediate frames are skipped
+    and the weighting information is lost.
     """
 
     def __init__(
@@ -372,7 +394,7 @@ class MetSim:
         center: Optional[torch.Tensor] = None,
         max_distance_to_center: Optional[int] = None,
         compile: bool = False,
-        jump_stride: int = 10,
+        jump_stride: int = 1,
     ) -> None:
         """Initialze stepper and store options.
 
@@ -401,9 +423,14 @@ class MetSim:
             performance, but may make debugging harder.
         jump_stride:
             Only a subset of jumps are recorded; this value controls how many.
-            For example, 5 implies that the state every 5 jumps is recorded. Note that
-            jumps are not the same as the underlying steps in the Markov chain; see
-            MetStep for more information.
+            For example, 5 implies that the state every 5 jumps is recorded. Note
+            that jumps are not the same as the underlying steps in the Markov
+            chain; see MetStep for more information.
+
+            WARNING: Using jump_stride > 1 prevents accurate recovery of the
+            Boltzmann distribution via index weighting, because intermediate
+            frames are skipped. Only use jump_stride > 1 when you need trajectory
+            snapshots and do not require equilibrium statistics. Default is 1.
 
         """
         self.stepper = MetStep(
@@ -416,6 +443,16 @@ class MetSim:
             compile=compile,
         )
         self.jump_stride = jump_stride
+
+        if jump_stride != 1:
+            warn(
+                f"jump_stride={jump_stride} prevents accurate recovery of the "
+                "Boltzmann distribution via index weighting. Use jump_stride=1 "
+                "for equilibrium statistics, or ignore this warning if you only "
+                "need trajectory snapshots.",
+                UserWarning,
+                stacklevel=2,
+            )
 
     def propagate(self, n_jumps: int, start: State) -> State:
         """Propagate the chain forward in time.
