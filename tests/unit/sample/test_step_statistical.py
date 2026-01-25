@@ -530,6 +530,151 @@ class TestEquilibriumDistribution:
                     f"relative error {rel_error:.3f} > 0.05"
                 )
 
+    def test_quadratic_energy_distribution(self, quadratic_energy, small_alphabet_proposer):
+        """Quadratic energy E(x) = (x-1)^2 should favor state 1.
+
+        With states 0,1,2,3 and E(x) = (x-1)^2:
+          E(0) = 1, E(1) = 0, E(2) = 1, E(3) = 4
+
+        The Boltzmann distribution should peak at state 1 (minimum energy).
+        Uses unbiased IntMutate proposer with index weighting.
+        """
+        n_states = 4
+        n_steps = 200000
+        beta = 1.0
+
+        start = torch.zeros(1, dtype=torch.int64)
+
+        sim = MetSim(
+            model=quadratic_energy,
+            proposer=small_alphabet_proposer,
+            batch_size=64,
+            beta=beta,
+            jump_stride=1,
+        )
+
+        frames = sim.run(n_steps=n_steps, start=start.tolist(), device="cpu")
+
+        # Discard burn-in
+        burn_in_count = int(len(frames) * 0.2)
+        frames = frames[burn_in_count:]
+
+        # Weight by index difference
+        counts = Counter()
+        total_weight = 0
+
+        for i in range(len(frames) - 1):
+            val = int(frames[i].sequence[0].item())
+            weight = frames[i + 1].index - frames[i].index
+            counts[val] += weight
+            total_weight += weight
+
+        counts[int(frames[-1].sequence[0].item())] += 1
+        total_weight += 1
+
+        # Compute expected Boltzmann probabilities for quadratic energy
+        energies = np.array([(x - 1) ** 2 for x in range(n_states)], dtype=float)
+        weights = np.exp(-beta * energies)
+        expected_freq = weights / weights.sum()
+
+        # Chi-squared test
+        observed_counts = np.array([counts.get(i, 0) for i in range(n_states)])
+        expected_counts = expected_freq * total_weight
+
+        chi2, p_value = stats.chisquare(observed_counts, expected_counts)
+
+        # Use a slightly looser threshold due to MCMC autocorrelation
+        assert p_value > 0.001, (
+            f"Quadratic energy distribution incorrect: chi2={chi2:.2f}, p={p_value:.4f}\n"
+            f"Observed freq: {observed_counts / total_weight}\n"
+            f"Expected freq: {expected_freq}"
+        )
+
+        # State 1 should have highest frequency (lowest energy)
+        observed_freq = observed_counts / total_weight
+        assert observed_freq[1] > observed_freq[0], "State 1 should be more frequent than state 0"
+        assert observed_freq[1] > observed_freq[2], "State 1 should be more frequent than state 2"
+        assert observed_freq[1] > observed_freq[3], "State 1 should be more frequent than state 3"
+
+    def test_bias_shifts_mean_with_quadratic_energy(self, quadratic_energy):
+        """Biased proposer should shift distribution mean towards center.
+
+        With quadratic energy E(x) = (x-1)^2, the unbiased Boltzmann distribution
+        has mean close to 1 (the minimum energy state).
+
+        Using BiasedIntMutate with center=3 should shift the mean towards 3,
+        away from the energy minimum at 1.
+
+        We use a low beta (0.3) so the energy penalty is weak enough that
+        the proposal bias can significantly shift the distribution.
+        """
+        n_states = 4
+        n_steps = 150000
+        beta = 0.3  # Low beta so bias can overcome energy penalty
+        center_val = 3
+
+        start = torch.zeros(1, dtype=torch.int64)
+        center = torch.tensor([center_val], dtype=torch.int64)
+
+        means = []
+        biases = [0.0, 0.5, 0.9]
+
+        for bias in biases:
+            proposer = BiasedIntMutate(
+                min_int=0, max_int=n_states, bias=bias, center=center, n_mutations=1
+            )
+
+            sim = MetSim(
+                model=quadratic_energy,
+                proposer=proposer,
+                batch_size=64,
+                beta=beta,
+                jump_stride=1,
+            )
+
+            frames = sim.run(n_steps=n_steps, start=start.tolist(), device="cpu")
+
+            # Discard burn-in
+            burn_in_count = int(len(frames) * 0.2)
+            frames = frames[burn_in_count:]
+
+            # Calculate weighted mean using index differences
+            weighted_sum = 0
+            total_weight = 0
+
+            for i in range(len(frames) - 1):
+                val = int(frames[i].sequence[0].item())
+                weight = frames[i + 1].index - frames[i].index
+                weighted_sum += val * weight
+                total_weight += weight
+
+            # Last frame
+            weighted_sum += int(frames[-1].sequence[0].item())
+            total_weight += 1
+
+            mean = weighted_sum / total_weight
+            means.append(mean)
+
+        # Mean should increase towards center (3) as bias increases
+        for i in range(len(biases) - 1):
+            assert means[i] < means[i + 1], (
+                f"Mean should increase with bias towards center={center_val}.\n"
+                f"bias={biases[i]}: mean={means[i]:.4f}\n"
+                f"bias={biases[i+1]}: mean={means[i+1]:.4f}"
+            )
+
+        # With bias=0 and low beta, mean should still be below 1.5
+        # (slightly favoring the energy minimum at 1)
+        assert means[0] < 1.8, (
+            f"With bias=0, mean should favor energy min: {means[0]:.4f}"
+        )
+
+        # With bias=0.9, mean should be noticeably shifted towards 3
+        assert means[-1] > means[0] + 0.5, (
+            f"With bias=0.9, mean should be significantly higher than bias=0.\n"
+            f"bias=0: mean={means[0]:.4f}, bias=0.9: mean={means[-1]:.4f}"
+        )
+
 
 class TestBetaScaling:
     """Test that temperature (beta) correctly affects the distribution."""
