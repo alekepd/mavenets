@@ -257,6 +257,7 @@ class TestEquilibriumDistribution:
         # Should not reject null hypothesis of uniformity at 1% level
         assert p_value > 0.01, f"Distribution not uniform: chi2={chi2:.2f}, p={p_value:.4f}"
 
+    @pytest.mark.slow
     def test_linear_energy_exponential_distribution(
         self, single_position_energy, small_alphabet_proposer
     ):
@@ -309,6 +310,7 @@ class TestEquilibriumDistribution:
             f"Observed: {observed_freq}\nExpected: {expected_freq}"
         )
 
+    @pytest.mark.slow
     def test_mean_matches_theoretical(self, single_position_energy, small_alphabet_proposer):
         """Verify that sampled mean matches theoretical expectation.
 
@@ -358,6 +360,7 @@ class TestEquilibriumDistribution:
             f"theoretical={theoretical_mean:.3f}, std_error={std_error:.3f}"
         )
 
+    @pytest.mark.slow
     def test_two_position_independent_marginals(self, small_alphabet_proposer):
         """For E(x,y) = x + y, marginals should be independent.
 
@@ -415,6 +418,7 @@ class TestEquilibriumDistribution:
                     f"Observed: {observed_freq}\nExpected: {expected_freq}"
                 )
 
+    @pytest.mark.slow
     def test_batched_sampling_with_index_weighting(
         self, single_position_energy, small_alphabet_proposer
     ):
@@ -476,6 +480,7 @@ class TestEquilibriumDistribution:
             f"Expected freq: {expected_freq}"
         )
 
+    @pytest.mark.slow
     def test_batched_sampling_different_batch_sizes(
         self, single_position_energy, small_alphabet_proposer
     ):
@@ -530,6 +535,7 @@ class TestEquilibriumDistribution:
                     f"relative error {rel_error:.3f} > 0.05"
                 )
 
+    @pytest.mark.slow
     def test_quadratic_energy_distribution(self, quadratic_energy, small_alphabet_proposer):
         """Quadratic energy E(x) = (x-1)^2 should favor state 1.
 
@@ -596,6 +602,7 @@ class TestEquilibriumDistribution:
         assert observed_freq[1] > observed_freq[2], "State 1 should be more frequent than state 2"
         assert observed_freq[1] > observed_freq[3], "State 1 should be more frequent than state 3"
 
+    @pytest.mark.slow
     def test_bias_shifts_mean_with_quadratic_energy(self, quadratic_energy):
         """Biased proposer should shift distribution mean towards center.
 
@@ -709,6 +716,7 @@ class TestBetaScaling:
                 f"State {i} frequency {freq:.3f} too far from uniform (0.25)"
             )
 
+    @pytest.mark.slow
     def test_higher_beta_lower_energy_mean(self, single_position_energy, small_alphabet_proposer):
         """Higher beta should concentrate distribution on lower energy states."""
         _n_states = 4  # noqa: F841 - documents alphabet size
@@ -740,6 +748,7 @@ class TestBetaScaling:
                 f"mean at beta={betas[i+1]} ({means[i+1]:.3f})"
             )
 
+    @pytest.mark.slow
     def test_variance_decreases_with_beta(self, single_position_energy, small_alphabet_proposer):
         """Higher beta should give lower variance (more concentrated)."""
         _n_states = 4  # noqa: F841 - documents alphabet size
@@ -930,6 +939,7 @@ class TestProposerStatistics:
 class TestBiasedSampling:
     """Test that BiasedIntMutate shifts the sampled distribution towards center."""
 
+    @pytest.mark.slow
     def test_bias_shifts_distribution_towards_center(self, single_position_energy):
         """Higher bias should shift the equilibrium distribution towards center.
 
