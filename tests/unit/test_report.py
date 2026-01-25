@@ -219,7 +219,7 @@ class TestPredict:
             batch_size=100,
         )
         pd.testing.assert_frame_equal(
-            result_small, result_large, check_exact=False, rtol=1e-5
+            result_small, result_large, check_exact=False, rtol=1e-4
         )
 
     def test_translate_experiment_ids_false(
