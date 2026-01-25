@@ -15,9 +15,14 @@ from mavenets.report import (  # type: ignore[import-not-found]
     TUNED_PRED_KEY,
     RAW_PRED_KEY,
     EXPID_KEY,
+    SEQUENCE_KEY,
+    MUTCOUNT_KEY,
+    _compute_mutation_distances,
 )
 from mavenets.network.tune import LinearTuner  # type: ignore[import-not-found]
 from mavenets.network.base import MLP  # type: ignore[import-not-found]
+from mavenets.data.load import SequenceDataset  # type: ignore[import-not-found]
+from mavenets.data import SARS_COV2_SEQ  # type: ignore[import-not-found]
 
 
 class TestConstants:
@@ -38,6 +43,60 @@ class TestConstants:
     def test_expid_key(self) -> None:
         """Test EXPID_KEY constant."""
         assert EXPID_KEY == "experiment"
+
+    def test_sequence_key(self) -> None:
+        """Test SEQUENCE_KEY constant."""
+        assert SEQUENCE_KEY == "sequence"
+
+    def test_mutcount_key(self) -> None:
+        """Test MUTCOUNT_KEY constant."""
+        assert MUTCOUNT_KEY == "mutations_from_sarscov2"
+
+
+class TestComputeMutationDistances:
+    """Test the _compute_mutation_distances helper function."""
+
+    def test_identical_sequences(self) -> None:
+        """Test that identical sequences have 0 mutations."""
+        reference = "ACDEF"
+        sequences = ["ACDEF", "ACDEF"]
+        distances = _compute_mutation_distances(sequences, reference)
+        assert distances == [0, 0]
+
+    def test_single_mutation(self) -> None:
+        """Test detection of single mutations."""
+        reference = "ACDEF"
+        sequences = ["XCDEF", "AXDEF", "ACDEX"]
+        distances = _compute_mutation_distances(sequences, reference)
+        assert distances == [1, 1, 1]
+
+    def test_multiple_mutations(self) -> None:
+        """Test detection of multiple mutations."""
+        reference = "ACDEF"
+        sequences = ["XXXXX", "AXDXF", "AXXEF"]
+        distances = _compute_mutation_distances(sequences, reference)
+        assert distances == [5, 2, 2]
+
+    def test_empty_sequences_list(self) -> None:
+        """Test with empty sequences list."""
+        reference = "ACDEF"
+        sequences: list[str] = []
+        distances = _compute_mutation_distances(sequences, reference)
+        assert distances == []
+
+    def test_length_mismatch_raises(self) -> None:
+        """Test that mismatched sequence lengths raise ValueError."""
+        reference = "ACDEF"
+        sequences = ["ACDEFG"]  # One character longer
+        with pytest.raises(ValueError, match="does not match"):
+            _compute_mutation_distances(sequences, reference)
+
+    def test_mixed_distances(self) -> None:
+        """Test a mix of different mutation counts."""
+        reference = "AAAA"
+        sequences = ["AAAA", "XAAA", "XXAA", "XXXA", "XXXX"]
+        distances = _compute_mutation_distances(sequences, reference)
+        assert distances == [0, 1, 2, 3, 4]
 
 
 class TestPredict:
@@ -392,3 +451,162 @@ class TestPredictWithTunedModel:
         raw = np.array(result[RAW_PRED_KEY].values)
         # At least some predictions should differ
         assert not np.allclose(tuned, raw, atol=1e-6)
+
+
+class TestPredictWithSequenceDataset:
+    """Test predict function with SequenceDataset."""
+
+    @pytest.fixture
+    def simple_tuner(self, cpu_device: str) -> LinearTuner[torch.Tensor]:
+        """Create a simple tuner for testing."""
+        mlp = MLP(in_size=5, out_size=1, hidden_sizes=[8], post_squeeze=True).to(
+            cpu_device
+        )
+        return LinearTuner(mlp, n_heads=3).to(cpu_device)
+
+    @pytest.fixture
+    def sequence_dataset(self, cpu_device: str) -> SequenceDataset[tuple[torch.Tensor, ...]]:
+        """Create a SequenceDataset for testing."""
+        torch.manual_seed(42)
+        X = torch.randn(5, 5, device=cpu_device)
+        y = torch.randn(5, device=cpu_device)
+        exp_idx = torch.tensor([0, 1, 2, 0, 1], dtype=torch.long, device=cpu_device)
+        base_dataset = TensorDataset(X, y, exp_idx)
+        # Use sequences that are the same length as SARS_COV2_SEQ (201 characters)
+        # Create sequences with known mutation counts
+        seq_len = len(SARS_COV2_SEQ)
+        sequences = (
+            SARS_COV2_SEQ,  # 0 mutations
+            "X" + SARS_COV2_SEQ[1:],  # 1 mutation (first position)
+            "XX" + SARS_COV2_SEQ[2:],  # 2 mutations
+            SARS_COV2_SEQ[:-1] + "X",  # 1 mutation (last position)
+            "X" * seq_len,  # All different
+        )
+        return SequenceDataset(base_dataset, sequences)
+
+    def test_sequence_column_present(
+        self,
+        simple_tuner: LinearTuner[torch.Tensor],
+        sequence_dataset: SequenceDataset[tuple[torch.Tensor, ...]],
+    ) -> None:
+        """Test that SEQUENCE_KEY column is present when using SequenceDataset."""
+        result = predict(
+            model=simple_tuner,
+            dataset=sequence_dataset,
+            graph=False,
+            translate_experiment_ids=False,
+            batch_size=10,
+        )
+        assert SEQUENCE_KEY in result.columns
+
+    def test_mutcount_column_present(
+        self,
+        simple_tuner: LinearTuner[torch.Tensor],
+        sequence_dataset: SequenceDataset[tuple[torch.Tensor, ...]],
+    ) -> None:
+        """Test that MUTCOUNT_KEY column is present when using SequenceDataset."""
+        result = predict(
+            model=simple_tuner,
+            dataset=sequence_dataset,
+            graph=False,
+            translate_experiment_ids=False,
+            batch_size=10,
+        )
+        assert MUTCOUNT_KEY in result.columns
+
+    def test_sequences_match_dataset(
+        self,
+        simple_tuner: LinearTuner[torch.Tensor],
+        sequence_dataset: SequenceDataset[tuple[torch.Tensor, ...]],
+    ) -> None:
+        """Test that sequences in DataFrame match those in the dataset."""
+        result = predict(
+            model=simple_tuner,
+            dataset=sequence_dataset,
+            graph=False,
+            translate_experiment_ids=False,
+            batch_size=10,
+        )
+        for i, seq in enumerate(sequence_dataset.sequences):
+            assert result[SEQUENCE_KEY].iloc[i] == seq
+
+    def test_mutation_counts_correct(
+        self,
+        simple_tuner: LinearTuner[torch.Tensor],
+        sequence_dataset: SequenceDataset[tuple[torch.Tensor, ...]],
+    ) -> None:
+        """Test that mutation counts are calculated correctly."""
+        result = predict(
+            model=simple_tuner,
+            dataset=sequence_dataset,
+            graph=False,
+            translate_experiment_ids=False,
+            batch_size=10,
+        )
+        # Verify known mutation counts based on our fixture
+        assert result[MUTCOUNT_KEY].iloc[0] == 0  # SARS_COV2_SEQ itself
+        assert result[MUTCOUNT_KEY].iloc[1] == 1  # One mutation at start
+        assert result[MUTCOUNT_KEY].iloc[2] == 2  # Two mutations at start
+        assert result[MUTCOUNT_KEY].iloc[3] == 1  # One mutation at end
+        # Last sequence is all X's, so all positions differ
+        assert result[MUTCOUNT_KEY].iloc[4] == len(SARS_COV2_SEQ)
+
+    def test_regular_dataset_no_sequence_columns(
+        self,
+        simple_tuner: LinearTuner[torch.Tensor],
+        cpu_device: str,
+    ) -> None:
+        """Test that regular TensorDataset doesn't get sequence columns."""
+        torch.manual_seed(42)
+        X = torch.randn(5, 5, device=cpu_device)
+        y = torch.randn(5, device=cpu_device)
+        exp_idx = torch.tensor([0, 1, 2, 0, 1], dtype=torch.long, device=cpu_device)
+        regular_dataset = TensorDataset(X, y, exp_idx)
+
+        result = predict(
+            model=simple_tuner,
+            dataset=regular_dataset,
+            graph=False,
+            translate_experiment_ids=False,
+            batch_size=10,
+        )
+        assert SEQUENCE_KEY not in result.columns
+        assert MUTCOUNT_KEY not in result.columns
+
+    def test_all_columns_present_with_sequence_dataset(
+        self,
+        simple_tuner: LinearTuner[torch.Tensor],
+        sequence_dataset: SequenceDataset[tuple[torch.Tensor, ...]],
+    ) -> None:
+        """Test that all expected columns are present with SequenceDataset."""
+        result = predict(
+            model=simple_tuner,
+            dataset=sequence_dataset,
+            graph=False,
+            translate_experiment_ids=False,
+            batch_size=10,
+        )
+        expected_columns = {
+            REFERENCE_KEY,
+            TUNED_PRED_KEY,
+            RAW_PRED_KEY,
+            EXPID_KEY,
+            SEQUENCE_KEY,
+            MUTCOUNT_KEY,
+        }
+        assert set(result.columns) == expected_columns
+
+    def test_dataframe_length_matches_sequence_dataset(
+        self,
+        simple_tuner: LinearTuner[torch.Tensor],
+        sequence_dataset: SequenceDataset[tuple[torch.Tensor, ...]],
+    ) -> None:
+        """Test that DataFrame length matches SequenceDataset length."""
+        result = predict(
+            model=simple_tuner,
+            dataset=sequence_dataset,
+            graph=False,
+            translate_experiment_ids=False,
+            batch_size=10,
+        )
+        assert len(result) == len(sequence_dataset)

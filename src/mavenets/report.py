@@ -1,5 +1,5 @@
 """Routines for creating predictions using trained models."""
-from typing import TypeVar, Final
+from typing import TypeVar, Final, List
 import torch
 import numpy as np
 from torch.utils.data import DataLoader, Dataset
@@ -7,7 +7,7 @@ from torch_geometric.loader import DataLoader as pygDataLoader  # type: ignore
 import pandas as pd  # type: ignore
 from .network import MHTuner
 from .tools import SIGNAL_PYGBATCHKEY, EXP_PYGBATCHKEY
-from .data import resolve_dataspec
+from .data import resolve_dataspec, SequenceDataset, SARS_COV2_SEQ
 
 _T = TypeVar("_T")
 
@@ -15,11 +15,41 @@ REFERENCE_KEY: Final = "reference"
 TUNED_PRED_KEY: Final = "tuned"
 RAW_PRED_KEY: Final = "raw"
 EXPID_KEY: Final = "experiment"
+SEQUENCE_KEY: Final = "sequence"
+MUTCOUNT_KEY: Final = "mutations_from_sarscov2"
+
+
+def _compute_mutation_distances(sequences: List[str], reference: str) -> List[int]:
+    """Compute the number of mutations from a reference sequence for each sequence.
+
+    Arguments:
+    ---------
+    sequences:
+        List of amino acid sequences to compare.
+    reference:
+        Reference sequence to compare against.
+
+    Returns:
+    -------
+    List of integers, each representing the number of positions where the
+    corresponding sequence differs from the reference.
+
+    """
+    distances = []
+    for seq in sequences:
+        if len(seq) != len(reference):
+            raise ValueError(
+                f"Sequence length ({len(seq)}) does not match "
+                f"reference length ({len(reference)})"
+            )
+        distance = sum(1 for a, b in zip(seq, reference) if a != b)
+        distances.append(distance)
+    return distances
 
 
 def predict(
     model: MHTuner,
-    dataset: Dataset,
+    dataset: Dataset,  # type: ignore[type-arg]
     graph: bool = False,
     translate_experiment_ids: bool = True,
     batch_size: int = 256,
@@ -35,7 +65,8 @@ def predict(
         torch.Modules, as we extract both tuned and non-tuned output.
     dataset:
         torch.Dataset containing data for evaluation. Should be of the same format
-        as those used for training.
+        as those used for training. If a SequenceDataset is provided, the returned
+        DataFrame will include additional columns for sequences and mutation counts.
     graph:
         If model operates on pyg-style batches, this must be set to True.
     translate_experiment_ids:
@@ -55,6 +86,12 @@ def predict(
         Untuned prediction for a given sequence.
     "experiment"
         integer denoting which tuner head was used for this prediction.
+
+    If dataset is a SequenceDataset, the following additional columns are included:
+    "sequence"
+        The raw amino acid sequence.
+    "mutations_from_sarscov2"
+        Number of mutations from the SARS-CoV-2 reference sequence.
 
     """
     if graph:
@@ -104,4 +141,11 @@ def predict(
         df[EXPID_KEY] = np.concatenate(experiments, axis=0)
     df[TUNED_PRED_KEY] = np.concatenate(tuned_predictions, axis=0)
     df[RAW_PRED_KEY] = np.concatenate(raw_predictions, axis=0)
+
+    # Add sequence information if dataset is a SequenceDataset
+    if isinstance(dataset, SequenceDataset):
+        sequences = list(dataset.sequences)
+        df[SEQUENCE_KEY] = sequences
+        df[MUTCOUNT_KEY] = _compute_mutation_distances(sequences, SARS_COV2_SEQ)
+
     return df
