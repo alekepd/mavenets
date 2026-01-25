@@ -125,7 +125,7 @@ def scan(replica: int, total_n_replicas: int) -> None:
     report_datasets = {}
     for spec in CORE_DATA_SPECS:
         _, vdset = get_datasets(
-            train_specs=[spec], val_specs=[spec], device=DEVICE, feat_type="t5"
+            train_specs=['base_mutsplit_12'], val_specs=[spec], device=DEVICE, feat_type="t5"
         )
         report_datasets.update({spec.name: vdset})
 
