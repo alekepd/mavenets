@@ -1,6 +1,18 @@
 """Tools for loading data."""
 
-from typing import Final, Tuple, Iterable, Literal, Union, Dict, overload, Optional
+from typing import (
+    Final,
+    Tuple,
+    Iterable,
+    Literal,
+    Union,
+    Dict,
+    overload,
+    Optional,
+    Protocol,
+    TypeVar,
+    Generic,
+)
 import pandas as pd  # type: ignore
 from torch.utils.data import TensorDataset
 from torch import Tensor, tensor, float32, int32
@@ -24,6 +36,128 @@ CSV_RID_CNAME: Final = "seq_id"
 SEQ_CNAME: Final = "sequence"
 SIGNAL_CNAME: Final = "signal"
 EXPERIMENT_CNAME: Final = "experiment_index"
+
+
+# Type variable for the item type returned by a dataset's __getitem__
+_T_co = TypeVar("_T_co", covariant=True)
+
+
+class SizedDataset(Protocol[_T_co]):
+    """Protocol for a Dataset that implements __len__ and __getitem__."""
+
+    def __len__(self) -> int:
+        """Return the number of samples."""
+        ...
+
+    def __getitem__(self, idx: int, /) -> _T_co:
+        """Return the item at the given index."""
+        ...
+
+
+class SequenceDataset(Dataset[_T_co], Generic[_T_co]):
+    """Wrapper dataset that adds sequence access to an underlying dataset.
+
+    This class wraps an existing Dataset (such as TensorDataset or DNSEDataset)
+    and provides access to the raw amino acid sequences corresponding to each
+    data point. When used as a standard Dataset (via indexing or iteration),
+    it behaves identically to the wrapped dataset.
+
+    The generic type parameter _T_co represents the item type returned by
+    __getitem__, which is preserved from the underlying dataset.
+
+    Example:
+    -------
+    ```
+    base_dataset = TensorDataset(features, signals, exp_ids)
+    sequences = ("ACDEF...", "GHIKL...", ...)
+    seq_dataset = SequenceDataset(base_dataset, sequences)
+
+    # Standard dataset access returns same as base_dataset
+    item = seq_dataset[0]  # Returns (features[0], signals[0], exp_ids[0])
+
+    # Sequence access
+    seq = seq_dataset.get_sequence(0)  # Returns "ACDEF..."
+    all_seqs = seq_dataset.sequences  # Returns tuple of all sequences
+    ```
+
+    """
+
+    _dataset: SizedDataset[_T_co]
+    _sequences: Tuple[str, ...]
+
+    def __init__(
+        self, dataset: SizedDataset[_T_co], sequences: Tuple[str, ...]
+    ) -> None:
+        """Initialize with a base dataset and corresponding sequences.
+
+        Arguments:
+        ---------
+        dataset:
+            The underlying Dataset to wrap. All standard Dataset operations
+            are delegated to this object. Must implement __len__.
+        sequences:
+            Tuple of raw amino acid sequences, one per data point.
+            Must have the same length as the dataset.
+
+        Raises:
+        ------
+        ValueError:
+            If the number of sequences doesn't match the dataset length.
+
+        """
+        super().__init__()
+        if len(sequences) != len(dataset):
+            raise ValueError(
+                f"Number of sequences ({len(sequences)}) must match "
+                f"dataset length ({len(dataset)})"
+            )
+        self._dataset = dataset
+        self._sequences = sequences
+
+    def __len__(self) -> int:
+        """Return the number of samples in the dataset."""
+        return len(self._dataset)
+
+    def __getitem__(self, idx: int) -> _T_co:
+        """Return the item at the given index from the underlying dataset."""
+        return self._dataset[idx]
+
+    def get_sequence(self, idx: int) -> str:
+        """Return the raw sequence at the given index.
+
+        Arguments:
+        ---------
+        idx:
+            Index of the sequence to retrieve.
+
+        Returns:
+        -------
+        The raw amino acid sequence string at the given index.
+
+        """
+        return self._sequences[idx]
+
+    @property
+    def sequences(self) -> Tuple[str, ...]:
+        """Return all raw sequences.
+
+        Returns:
+        -------
+        Tuple of all raw amino acid sequences in the dataset.
+
+        """
+        return self._sequences
+
+    @property
+    def dataset(self) -> SizedDataset[_T_co]:
+        """Return the underlying wrapped dataset.
+
+        Returns:
+        -------
+        The underlying Dataset instance.
+
+        """
+        return self._dataset
 
 
 class DNSEDataset(Dataset):
@@ -149,7 +283,7 @@ def _get_aggregate_mave_csv(
 
 def _process_table(
     frame: pd.DataFrame, feat_type: str, int_encoder: IntEncoder, device: str
-) -> Tuple[Tensor, Tensor, Tensor]:
+) -> Tuple[Tensor, Tensor, Tensor, Tuple[str, ...]]:
     """Transform data frame into processed tensors.
 
     Arguments:
@@ -169,10 +303,11 @@ def _process_table(
 
     Returns:
     -------
-    Three tensors: First is the featurized sequences, second is the signal to
-    fit against, third contains dataset ids.
+    Four values: First is the featurized sequences, second is the signal to
+    fit against, third contains dataset ids, fourth is a tuple of raw sequences.
 
     """
+    raw_sequences: Tuple[str, ...] = tuple(frame.loc[:, SEQ_CNAME].tolist())
     int_encoded = int_encoder.batch_encode(frame.loc[:, SEQ_CNAME])
     if feat_type == "onehot":
         encoded = int_to_floatonehot(int_encoded, num_classes=len(int_encoder.alphabet))
@@ -190,7 +325,7 @@ def _process_table(
 
     signal = tensor(frame.loc[:, SIGNAL_CNAME].to_numpy(), dtype=float32)
     dset_id = tensor(frame.loc[:, EXPERIMENT_CNAME].to_numpy(), dtype=int32)
-    return encoded, signal, dset_id
+    return encoded, signal, dset_id, raw_sequences
 
 
 @overload
@@ -208,7 +343,7 @@ def get_datasets(
     parent_path: Path = ...,
     include_test: Literal[False],
     whiten: Optional[bool] = ...,
-) -> Tuple[Dataset, Dataset]:
+) -> Tuple[SequenceDataset, SequenceDataset]:
     ...
 
 
@@ -227,7 +362,7 @@ def get_datasets(
     parent_path: Path = ...,
     include_test: Literal[True],
     whiten: Optional[bool] = ...,
-) -> Tuple[Dataset, Dataset, Dataset]:
+) -> Tuple[SequenceDataset, SequenceDataset, SequenceDataset]:
     ...
 
 
@@ -246,7 +381,7 @@ def get_datasets(
     parent_path: Path = ...,
     include_test: Literal[False] = ...,
     whiten: Optional[bool] = ...,
-) -> Tuple[Dataset, Dataset]:
+) -> Tuple[SequenceDataset, SequenceDataset]:
     ...
 
 
@@ -264,13 +399,18 @@ def get_datasets(  # noqa: C901
     parent_path: Path = Path(),
     include_test: bool = False,
     whiten: Optional[bool] = None,
-) -> Union[Tuple[Dataset, Dataset], Tuple[Dataset, Dataset, Dataset]]:
+) -> Union[
+    Tuple[SequenceDataset, SequenceDataset],
+    Tuple[SequenceDataset, SequenceDataset, SequenceDataset],
+]:
     """Load, featurize, and return SARSCOV2 data for training and evaluation.
 
     Loads target signal and sequences from disk, and if graph is specified reads
-    a file describing the 3d structure of the protein. If graph is True, a Tuple of
-    two DNSEDataset is returned; else, two TensorDatasets are returned, first being
-    the train data and second the validation data.
+    a file describing the 3d structure of the protein. If graph is True, the
+    underlying datasets are DNSEDataset instances; else, TensorDatasets are used.
+    All returned datasets are wrapped in SequenceDataset, which provides access
+    to the raw amino acid sequences via the get_sequence() method and sequences
+    property.
 
     If include_test is True, 3 datasets are returned: train, validation, and test.
     If False, only train and validation are returned.
@@ -330,9 +470,12 @@ def get_datasets(  # noqa: C901
 
     Returns:
     -------
-    If graph is False, (2 or 3)-Tuple of TensorDatasets (train, val) on the specified
-    device.  TensorDatasets return (feat, signal, dataset_index) during iteration. Else,
-    2-3 DMSE datasets of the same data coupled with a structure graph. See include_test.
+    (2 or 3)-Tuple of SequenceDataset instances (train, val, [test]) wrapping the
+    underlying datasets. When iterated, they return (feat, signal, dataset_index)
+    for TensorDataset-based or pyg Data objects for graph-based datasets. The
+    SequenceDataset wrapper provides additional sequence access via get_sequence()
+    and the sequences property. See include_test for whether 2 or 3 datasets are
+    returned.
 
     """
     if feat_type not in ("integer", "onehot", "t5"):
@@ -380,7 +523,7 @@ def get_datasets(  # noqa: C901
     if not set(alpha).issubset(set(enc.alphabet)):
         raise ValueError("Data contains residues not represented fixed alphabet.")
 
-    train_encoded, train_signal, train_dset_id = _process_table(
+    train_encoded, train_signal, train_dset_id, train_sequences = _process_table(
         train_frame,
         feat_type=feat_type,
         int_encoder=enc,
@@ -390,7 +533,7 @@ def get_datasets(  # noqa: C901
     post_transform.fit(train_encoded)
     train_encoded = post_transform.transform(train_encoded)
 
-    valid_encoded, valid_signal, valid_dset_id = _process_table(
+    valid_encoded, valid_signal, valid_dset_id, valid_sequences = _process_table(
         valid_frame,
         feat_type=feat_type,
         int_encoder=enc,
@@ -399,8 +542,12 @@ def get_datasets(  # noqa: C901
 
     valid_encoded = post_transform.transform(valid_encoded)
 
+    # Initialize test variables - will be set if include_test is True
+    test_base: Optional[SizedDataset[object]] = None
+    test_sequences: Optional[Tuple[str, ...]] = None
+
     if include_test:
-        test_encoded, test_signal, test_dset_id = _process_table(
+        test_encoded, test_signal, test_dset_id, test_sequences = _process_table(
             test_frame,
             feat_type=feat_type,
             int_encoder=enc,
@@ -418,14 +565,14 @@ def get_datasets(  # noqa: C901
             node_offset=0,
         )
 
-        train_dataset: Dataset = DNSEDataset(
+        train_base: Dataset = DNSEDataset(
             edge_attr=edge_features.to(device),
             edge_index=edge_labels.to(device),
             x=train_encoded.to(device),
             y=train_signal.to(device),
             experiment=train_dset_id.to(device),
         )
-        valid_dataset: Dataset = DNSEDataset(
+        valid_base: Dataset = DNSEDataset(
             edge_attr=edge_features.to(device),
             edge_index=edge_labels.to(device),
             x=valid_encoded.to(device),
@@ -434,7 +581,7 @@ def get_datasets(  # noqa: C901
         )
 
         if include_test:
-            test_dataset: Dataset = DNSEDataset(
+            test_base = DNSEDataset(
                 edge_attr=edge_features.to(device),
                 edge_index=edge_labels.to(device),
                 x=test_encoded.to(device),
@@ -442,18 +589,23 @@ def get_datasets(  # noqa: C901
                 experiment=test_dset_id.to(device),
             )
     else:
-        train_dataset = TensorDataset(
+        train_base = TensorDataset(
             train_encoded.to(device), train_signal.to(device), train_dset_id.to(device)
         )
-        valid_dataset = TensorDataset(
+        valid_base = TensorDataset(
             valid_encoded.to(device), valid_signal.to(device), valid_dset_id.to(device)
         )
         if include_test:
-            test_dataset = TensorDataset(
+            test_base = TensorDataset(
                 test_encoded.to(device), test_signal.to(device), test_dset_id.to(device)
             )
 
-    if include_test:
+    # Wrap datasets with SequenceDataset to provide sequence access
+    train_dataset: SequenceDataset = SequenceDataset(train_base, train_sequences)
+    valid_dataset: SequenceDataset = SequenceDataset(valid_base, valid_sequences)
+
+    if include_test and test_base is not None and test_sequences is not None:
+        test_dataset: SequenceDataset = SequenceDataset(test_base, test_sequences)
         return train_dataset, valid_dataset, test_dataset
-    else:
-        return train_dataset, valid_dataset
+
+    return train_dataset, valid_dataset

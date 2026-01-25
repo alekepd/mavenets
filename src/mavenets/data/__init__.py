@@ -20,11 +20,12 @@ from .featurize import (
 # Lazy imports for modules requiring torch_geometric/mdtraj
 _lazy_imports = {
     "get_datasets": ".load",
+    "SequenceDataset": ".load",
     "LegacyGraphDataReader": ".graph",
 }
 
 if TYPE_CHECKING:
-    from .load import get_datasets  # noqa: F401
+    from .load import get_datasets, SequenceDataset  # noqa: F401
     from .graph import LegacyGraphDataReader  # noqa: F401
 
 
