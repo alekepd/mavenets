@@ -410,6 +410,121 @@ class TestEquilibriumDistribution:
                     f"Observed: {observed_freq}\nExpected: {expected_freq}"
                 )
 
+    def test_batched_sampling_with_index_weighting(
+        self, single_position_energy, small_alphabet_proposer
+    ):
+        """Batched sampling with index weighting should recover Boltzmann distribution.
+
+        When using batch_size > 1, the index field tracks how many underlying
+        Markov chain steps occurred. By weighting each frame by the index
+        difference to the next frame, we recover the correct distribution.
+
+        This test verifies that batch_size=64 with jump_stride=1 and proper
+        index weighting produces the correct Boltzmann distribution.
+        """
+        n_states = 4
+        n_steps = 200000
+        beta = 0.5
+
+        start = torch.zeros(1, dtype=torch.int64)
+
+        sim = MetSim(
+            model=single_position_energy,
+            proposer=small_alphabet_proposer,
+            batch_size=64,
+            beta=beta,
+            jump_stride=1,  # Must be 1 for index weighting to work
+        )
+
+        frames = sim.run(n_steps=n_steps, start=start.tolist(), device="cpu")
+
+        # Discard burn-in
+        burn_in_count = int(len(frames) * 0.2)
+        frames = frames[burn_in_count:]
+
+        # Weight each frame by index difference to next frame
+        counts = Counter()
+        total_weight = 0
+
+        for i in range(len(frames) - 1):
+            val = int(frames[i].sequence[0].item())
+            weight = frames[i + 1].index - frames[i].index
+            counts[val] += weight
+            total_weight += weight
+
+        # Last frame gets weight 1
+        counts[int(frames[-1].sequence[0].item())] += 1
+        total_weight += 1
+
+        # Calculate expected Boltzmann probabilities
+        expected_freq = compute_boltzmann_probabilities(n_states, beta, None)
+
+        # Chi-squared test
+        observed_counts = np.array([counts.get(i, 0) for i in range(n_states)])
+        expected_counts = expected_freq * total_weight
+
+        chi2, p_value = stats.chisquare(observed_counts, expected_counts)
+
+        assert p_value > 0.01, (
+            f"Batched sampling with index weighting failed: chi2={chi2:.2f}, p={p_value:.4f}\n"
+            f"Observed freq: {observed_counts / total_weight}\n"
+            f"Expected freq: {expected_freq}"
+        )
+
+    def test_batched_sampling_different_batch_sizes(
+        self, single_position_energy, small_alphabet_proposer
+    ):
+        """Different batch sizes should all work with index weighting.
+
+        Tests that batch_size=32, 64, and 128 all produce correct distributions
+        when using jump_stride=1 and index weighting.
+        """
+        n_states = 4
+        n_steps = 150000
+        beta = 0.5
+
+        start = torch.zeros(1, dtype=torch.int64)
+        expected_freq = compute_boltzmann_probabilities(n_states, beta, None)
+
+        for batch_size in [32, 64, 128]:
+            sim = MetSim(
+                model=single_position_energy,
+                proposer=small_alphabet_proposer,
+                batch_size=batch_size,
+                beta=beta,
+                jump_stride=1,
+            )
+
+            frames = sim.run(n_steps=n_steps, start=start.tolist(), device="cpu")
+
+            # Discard burn-in
+            burn_in_count = int(len(frames) * 0.2)
+            frames = frames[burn_in_count:]
+
+            # Weight by index difference
+            counts = Counter()
+            total_weight = 0
+
+            for i in range(len(frames) - 1):
+                val = int(frames[i].sequence[0].item())
+                weight = frames[i + 1].index - frames[i].index
+                counts[val] += weight
+                total_weight += weight
+
+            counts[int(frames[-1].sequence[0].item())] += 1
+            total_weight += 1
+
+            # Check relative errors are small
+            for state in range(n_states):
+                observed = counts.get(state, 0) / total_weight
+                expected = expected_freq[state]
+                rel_error = abs(observed - expected) / expected
+
+                assert rel_error < 0.05, (
+                    f"batch_size={batch_size}, state {state}: "
+                    f"relative error {rel_error:.3f} > 0.05"
+                )
+
 
 class TestBetaScaling:
     """Test that temperature (beta) correctly affects the distribution."""
