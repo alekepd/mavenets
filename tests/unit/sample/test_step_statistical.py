@@ -222,8 +222,13 @@ def count_state_frequencies_weighted(
 class TestEquilibriumDistribution:
     """Test that sampling produces correct equilibrium distributions."""
 
+    @pytest.mark.filterwarnings("ignore:jump_stride=.*:UserWarning")
     def test_uniform_energy_uniform_samples(self, uniform_energy, small_alphabet_proposer):
-        """With E(x)=0 for all x, all states should be equally likely."""
+        """With E(x)=0 for all x, all states should be equally likely.
+
+        Note: Uses jump_stride > 1 since uniform energy means all states are
+        equally likely regardless of sampling method.
+        """
         n_states = 4
         seq_length = 1
         n_steps = 20000
@@ -543,7 +548,7 @@ class TestBetaScaling:
             proposer=small_alphabet_proposer,
             batch_size=64,
             beta=beta,
-            jump_stride=5,
+            jump_stride=1,
         )
 
         sequences = run_simulation_collect_states(sim, n_steps, start)
@@ -576,7 +581,7 @@ class TestBetaScaling:
                 proposer=small_alphabet_proposer,
                 batch_size=64,
                 beta=beta,
-                jump_stride=5,
+                jump_stride=1,
             )
 
             sequences = run_simulation_collect_states(sim, n_steps, start)
@@ -607,7 +612,7 @@ class TestBetaScaling:
                 proposer=small_alphabet_proposer,
                 batch_size=64,
                 beta=beta,
-                jump_stride=5,
+                jump_stride=1,
             )
 
             sequences = run_simulation_collect_states(sim, n_steps, start)
@@ -777,8 +782,91 @@ class TestProposerStatistics:
         )
 
 
+class TestBiasedSampling:
+    """Test that BiasedIntMutate shifts the sampled distribution towards center."""
+
+    def test_bias_shifts_distribution_towards_center(self, single_position_energy):
+        """Higher bias should shift the equilibrium distribution towards center.
+
+        With BiasedIntMutate, the proposal distribution favors the center value.
+        This breaks detailed balance and results in a sampled distribution that
+        is shifted towards the center compared to the true Boltzmann distribution.
+
+        As bias increases from 0 to 1, the sampled frequency of the center value
+        should monotonically increase.
+        """
+        n_states = 4
+        n_steps = 150000
+        beta = 0.5
+        center_val = 3  # High energy state - bias should overcome energy penalty
+
+        start = torch.zeros(1, dtype=torch.int64)
+        center = torch.tensor([center_val], dtype=torch.int64)
+
+        biases = [0.0, 0.3, 0.6, 0.9]
+        center_frequencies = []
+
+        for bias in biases:
+            proposer = BiasedIntMutate(
+                min_int=0, max_int=n_states, bias=bias, center=center, n_mutations=1
+            )
+
+            sim = MetSim(
+                model=single_position_energy,
+                proposer=proposer,
+                batch_size=64,
+                beta=beta,
+                jump_stride=1,
+            )
+
+            frames = sim.run(n_steps=n_steps, start=start.tolist(), device="cpu")
+
+            # Discard burn-in
+            burn_in_count = int(len(frames) * 0.2)
+            frames = frames[burn_in_count:]
+
+            # Weight by index difference
+            counts = Counter()
+            total_weight = 0
+
+            for i in range(len(frames) - 1):
+                val = int(frames[i].sequence[0].item())
+                weight = frames[i + 1].index - frames[i].index
+                counts[val] += weight
+                total_weight += weight
+
+            counts[int(frames[-1].sequence[0].item())] += 1
+            total_weight += 1
+
+            center_freq = counts.get(center_val, 0) / total_weight
+            center_frequencies.append(center_freq)
+
+        # Center frequency should increase with bias
+        for i in range(len(biases) - 1):
+            assert center_frequencies[i] < center_frequencies[i + 1], (
+                f"Center frequency should increase with bias.\n"
+                f"bias={biases[i]}: freq={center_frequencies[i]:.4f}\n"
+                f"bias={biases[i+1]}: freq={center_frequencies[i+1]:.4f}"
+            )
+
+        # With bias=0, center (state 3) should have low frequency due to high energy
+        # With bias=0.9, center should dominate despite high energy
+        assert center_frequencies[0] < 0.15, (
+            f"With bias=0, center freq should be low (Boltzmann): {center_frequencies[0]:.4f}"
+        )
+        assert center_frequencies[-1] > 0.5, (
+            f"With bias=0.9, center freq should be high: {center_frequencies[-1]:.4f}"
+        )
+
+
+@pytest.mark.filterwarnings("ignore:jump_stride=.*:UserWarning")
 class TestConstraints:
-    """Test that distance constraints are respected."""
+    """Test that distance constraints are respected.
+
+    Note: These tests use jump_stride > 1 to test constraint behavior,
+    not exact Boltzmann statistics. The warning about jump_stride is
+    suppressed for this class.
+    """
 
     def test_max_distance_never_exceeded(self, uniform_energy, small_alphabet_proposer):
         """With max_distance constraint, no sample should exceed it."""
