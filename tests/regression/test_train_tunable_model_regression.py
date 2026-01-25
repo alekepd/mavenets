@@ -24,16 +24,23 @@ from torch.utils.data import TensorDataset
 
 from mavenets.network.base import MLP  # type: ignore[import-not-found]
 from mavenets.network.tune import LinearTuner  # type: ignore[import-not-found]
-from mavenets.tools import train_tunable_model  # type: ignore[import-not-found]
+from mavenets.tools import (  # type: ignore[import-not-found]
+    train_tunable_model,
+    mixed_MSE,
+)
 
 # Constants for deterministic test setup
 RANDOM_SEED = 98765
 N_FEATURES = 10
 N_HEADS = 2
-N_TRAIN = 50
-N_VAL = 20
+# Dataset sizes chosen to ensure multiple batches with incomplete final batch:
+# Train: 53 samples with batch_size=16 -> 4 batches (16, 16, 16, 5)
+# Val: 23 samples with batch_size=7 -> 4 batches (7, 7, 7, 2)
+N_TRAIN = 53
+N_VAL = 23
 N_EPOCHS = 25
-TRAIN_BATCH_SIZE = 10
+TRAIN_BATCH_SIZE = 16
+REPORTING_BATCH_SIZE = 7
 REPORT_STRIDE = 5
 LEARNING_RATE = 0.05
 
@@ -171,7 +178,7 @@ def _run_deterministic_training() -> (
     torch.manual_seed(RANDOM_SEED + 3000)
     optimizer = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE)
 
-    # Train
+    # Train with all arguments explicitly set
     best_epoch, best_val, table = train_tunable_model(
         model=model,
         optimizer=optimizer,
@@ -179,16 +186,23 @@ def _run_deterministic_training() -> (
         n_epochs=N_EPOCHS,
         train_dataset=train_dataset,
         valid_dataset=valid_dataset,
+        report_datasets=None,
+        train_loss_function=mixed_MSE,
+        report_loss_function=mixed_MSE,
         train_batch_size=TRAIN_BATCH_SIZE,
-        reporting_batch_size=N_TRAIN,  # Evaluate on full dataset
+        reporting_batch_size=REPORTING_BATCH_SIZE,
         report_stride=REPORT_STRIDE,
         compile=False,
+        compile_mode="reduce-overhead",
         train_bfloat16=False,
-        progress_bar=False,
-        patience=100,  # High patience to avoid early stopping
         start_loss_param=0.5,
         end_loss_param=0.5,  # Fixed loss param (no annealing)
         loss_param_ramp_size=1,
+        grad_clip=1e3,
+        progress_bar=False,
+        patience=100,  # High patience to avoid early stopping
+        graph=False,
+        trainval_aware_optimizer=False,
     )
 
     return (
