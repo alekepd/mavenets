@@ -40,6 +40,7 @@ ignore = [
     "T201",
     "PTH207",
     "PTH118",
+    "E402",
 ]
 
 # Allow autofix for all enabled rules (when `--fix`) is provided.

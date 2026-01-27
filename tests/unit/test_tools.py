@@ -12,7 +12,6 @@ from torch.utils.data import TensorDataset
 
 # Type aliases for better type checker compatibility
 LossFn = Callable[[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
-EvalerFn = Callable[[Tuple[torch.Tensor, torch.Tensor], torch.Tensor, torch.Tensor], torch.Tensor]
 
 from mavenets.tools import (  # type: ignore[import-not-found]
     mixed_MSE,
@@ -23,6 +22,7 @@ from mavenets.tools import (  # type: ignore[import-not-found]
     train_tunable_model,
     SIGNAL_PYGBATCHKEY,
     EXP_PYGBATCHKEY,
+    ParamTrainEval,
 )
 from mavenets.network.tune import LinearTuner  # type: ignore[import-not-found]
 from mavenets.network.base import MLP  # type: ignore[import-not-found]
@@ -178,7 +178,7 @@ class TestCreateParameterizedTrainStepper:
     """Test the _create_parameterized_train_stepper function."""
 
     @pytest.fixture
-    def simple_model(self, cpu_device: str) -> nn.Module:
+    def simple_model(self, cpu_device: str) -> nn.Linear:
         """Create a simple model for testing."""
         return nn.Linear(5, 1).to(cpu_device)
 
@@ -194,7 +194,7 @@ class TestCreateParameterizedTrainStepper:
         return loss_fn
 
     def test_creates_callable(
-        self, simple_model: nn.Module, simple_loss: LossFn, cpu_device: str
+        self, simple_model: nn.Linear, simple_loss: LossFn, cpu_device: str
     ) -> None:
         """Test that function returns a callable."""
         optimizer = torch.optim.SGD(simple_model.parameters(), lr=0.01)
@@ -207,7 +207,7 @@ class TestCreateParameterizedTrainStepper:
         assert callable(stepper)
 
     def test_stepper_updates_model(
-        self, simple_model: nn.Module, simple_loss: LossFn, cpu_device: str
+        self, simple_model: nn.Linear, simple_loss: LossFn, cpu_device: str
     ) -> None:
         """Test that the stepper updates model parameters."""
         optimizer = torch.optim.SGD(simple_model.parameters(), lr=0.1)
@@ -232,7 +232,7 @@ class TestCreateParameterizedTrainStepper:
         assert not torch.allclose(simple_model.weight, initial_weights)
 
     def test_stepper_sets_train_mode(
-        self, simple_model: nn.Module, simple_loss: LossFn, cpu_device: str
+        self, simple_model: nn.Linear, simple_loss: LossFn, cpu_device: str
     ) -> None:
         """Test that stepper sets model to train mode."""
         optimizer = torch.optim.SGD(simple_model.parameters(), lr=0.01)
@@ -254,7 +254,7 @@ class TestCreateParameterizedTrainStepper:
         assert simple_model.training is True
 
     def test_grad_clip_applied(
-        self, simple_model: nn.Module, simple_loss: LossFn, cpu_device: str
+        self, simple_model: nn.Linear, simple_loss: LossFn, cpu_device: str
     ) -> None:
         """Test that gradient clipping is applied."""
         optimizer = torch.optim.SGD(simple_model.parameters(), lr=0.01)
@@ -281,7 +281,7 @@ class TestCreateParameterizedEvaler:
     """Test the _create_parameterized_evaler function."""
 
     @pytest.fixture
-    def simple_model(self, cpu_device: str) -> nn.Module:
+    def simple_model(self, cpu_device: str) -> nn.Linear:
         """Create a simple model for testing."""
         return nn.Linear(5, 1).to(cpu_device)
 
@@ -297,7 +297,7 @@ class TestCreateParameterizedEvaler:
         return loss_fn
 
     def test_creates_callable(
-        self, simple_model: nn.Module, simple_loss: LossFn, cpu_device: str
+        self, simple_model: nn.Linear, simple_loss: LossFn, cpu_device: str
     ) -> None:
         """Test that function returns a callable."""
         evaler = _create_parameterized_evaler(
@@ -309,7 +309,7 @@ class TestCreateParameterizedEvaler:
         assert callable(evaler)
 
     def test_evaler_returns_loss(
-        self, simple_model: nn.Module, simple_loss: LossFn, cpu_device: str
+        self, simple_model: nn.Linear, simple_loss: LossFn, cpu_device: str
     ) -> None:
         """Test that evaler returns a loss value."""
         evaler = _create_parameterized_evaler(
@@ -329,7 +329,7 @@ class TestCreateParameterizedEvaler:
         assert not torch.isnan(loss)
 
     def test_evaler_sets_eval_mode(
-        self, simple_model: nn.Module, simple_loss: LossFn, cpu_device: str
+        self, simple_model: nn.Linear, simple_loss: LossFn, cpu_device: str
     ) -> None:
         """Test that evaler sets model to eval mode."""
         evaler = _create_parameterized_evaler(
@@ -350,7 +350,7 @@ class TestCreateParameterizedEvaler:
         assert simple_model.training is False
 
     def test_evaler_no_gradient_required(
-        self, simple_model: nn.Module, simple_loss: LossFn, cpu_device: str
+        self, simple_model: nn.Linear, simple_loss: LossFn, cpu_device: str
     ) -> None:
         """Test that evaler doesn't require gradients for model update."""
         evaler = _create_parameterized_evaler(
@@ -374,7 +374,7 @@ class TestCreateParameterizedEvaler:
         assert torch.allclose(simple_model.weight, initial_weights)
 
     def test_call_opt_eval_requires_optimizer(
-        self, simple_model: nn.Module, simple_loss: LossFn, cpu_device: str
+        self, simple_model: nn.Linear, simple_loss: LossFn, cpu_device: str
     ) -> None:
         """Test that call_opt_eval=True requires an optimizer."""
         with pytest.raises(ValueError, match="call_opt_eval must be False"):
@@ -391,7 +391,7 @@ class TestEvalDataset:
     """Test the _eval_dataset function."""
 
     @pytest.fixture
-    def simple_evaler(self, cpu_device: str) -> EvalerFn:
+    def simple_evaler(self, cpu_device: str) -> ParamTrainEval:
         """Create a simple evaler for testing."""
 
         def evaler(
@@ -405,7 +405,7 @@ class TestEvalDataset:
         return evaler
 
     def test_evaluates_dataset(
-        self, simple_evaler: EvalerFn, cpu_device: str
+        self, simple_evaler: ParamTrainEval, cpu_device: str
     ) -> None:
         """Test that _eval_dataset evaluates the entire dataset."""
         # Create a simple dataset
@@ -428,7 +428,7 @@ class TestEvalDataset:
         assert not torch.isnan(torch.tensor(result))
 
     def test_handles_different_batch_sizes(
-        self, simple_evaler: EvalerFn, cpu_device: str
+        self, simple_evaler: ParamTrainEval, cpu_device: str
     ) -> None:
         """Test that function handles various batch sizes."""
         X = torch.randn(17, 5, device=cpu_device)  # Not evenly divisible
