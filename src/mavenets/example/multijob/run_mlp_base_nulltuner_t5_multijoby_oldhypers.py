@@ -130,7 +130,7 @@ def scan(replica: int, total_n_replicas: int) -> None:
 
     print("Done.")
 
-    for layer_sel,wdecay,lr,dropout in tasks:
+    for layer_sel,wdecay,lr in tasks:
         name = "mlp_l{}_wdecay{}_lr{}_base_nulltuner.csv".format(repr(layer_sel), wdecay, lr)
         if Path(name).is_file():
             continue
