@@ -1,7 +1,7 @@
 """Train (no fan) mlp using prediction accuracy using multiple GPUs.
 
 The model is trained on the 'base_mutsplit_123' dataset only; this corresponds to the
-1- and 2-mutations of the base dataset.
+1- 2- and 3-mutations of the base dataset.
 
 All multijob examples are designed to be run via code similar to that in run_example.py.
 
