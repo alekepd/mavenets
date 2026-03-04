@@ -2,6 +2,7 @@
 from typing import TypeVar, Final, List
 import torch
 import numpy as np
+from sklearn.linear_model import LinearRegression  # type: ignore[import-untyped]
 from torch.utils.data import DataLoader, Dataset
 from torch_geometric.loader import DataLoader as pygDataLoader  # type: ignore
 import pandas as pd  # type: ignore
@@ -17,6 +18,8 @@ RAW_PRED_KEY: Final = "raw"
 EXPID_KEY: Final = "experiment"
 SEQUENCE_KEY: Final = "sequence"
 MUTCOUNT_KEY: Final = "mutations_from_sarscov2"
+TUNED_CALIBRATED_KEY: Final = "tuned_calibrated"
+RAW_CALIBRATED_KEY: Final = "raw_calibrated"
 
 
 def _compute_mutation_distances(sequences: List[str], reference: str) -> List[int]:
@@ -53,6 +56,7 @@ def predict(
     graph: bool = False,
     translate_experiment_ids: bool = True,
     batch_size: int = 256,
+    linear_calibration: bool = False,
 ) -> pd.DataFrame:
     """Create a table of raw and tuned predictions.
 
@@ -74,6 +78,12 @@ def predict(
         experiments.
     batch_size:
         Batch size to use when evaluating the predictions.
+    linear_calibration:
+        If True, two additional columns are added to the returned DataFrame:
+        "tuned_calibrated" and "raw_calibrated". These are created by fitting
+        a linear least squares model (per experiment) from the prediction column
+        to the reference column, then applying that model to produce calibrated
+        values.
 
     Returns:
     -------
@@ -86,6 +96,12 @@ def predict(
         Untuned prediction for a given sequence.
     "experiment"
         integer denoting which tuner head was used for this prediction.
+
+    If linear_calibration is True, the following additional columns are included:
+    "tuned_calibrated"
+        Tuned predictions linearly calibrated to the reference, per experiment.
+    "raw_calibrated"
+        Raw predictions linearly calibrated to the reference, per experiment.
 
     If dataset is a SequenceDataset, the following additional columns are included:
     "sequence"
@@ -141,6 +157,21 @@ def predict(
         df[EXPID_KEY] = np.concatenate(experiments, axis=0)
     df[TUNED_PRED_KEY] = np.concatenate(tuned_predictions, axis=0)
     df[RAW_PRED_KEY] = np.concatenate(raw_predictions, axis=0)
+
+    if linear_calibration:
+        df[TUNED_CALIBRATED_KEY] = np.nan
+        df[RAW_CALIBRATED_KEY] = np.nan
+        for exp_id in df[EXPID_KEY].unique():
+            mask = df[EXPID_KEY] == exp_id
+            ref = df.loc[mask, REFERENCE_KEY].values
+            for pred_key, cal_key in [
+                (TUNED_PRED_KEY, TUNED_CALIBRATED_KEY),
+                (RAW_PRED_KEY, RAW_CALIBRATED_KEY),
+            ]:
+                pred = df.loc[mask, pred_key].values
+                reg = LinearRegression()
+                reg.fit(pred.reshape(-1, 1), ref)
+                df.loc[mask, cal_key] = reg.predict(pred.reshape(-1, 1))
 
     # Add sequence information if dataset is a SequenceDataset
     if isinstance(dataset, SequenceDataset):
