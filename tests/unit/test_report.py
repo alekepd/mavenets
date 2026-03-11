@@ -2,6 +2,7 @@
 
 These tests verify the prediction reporting utilities.
 """
+from pathlib import Path
 
 import pytest
 import torch
@@ -11,6 +12,7 @@ import pandas as pd
 
 from mavenets.report import (  # type: ignore[import-not-found]
     predict,
+    report_dataset,
     REFERENCE_KEY,
     TUNED_PRED_KEY,
     RAW_PRED_KEY,
@@ -610,3 +612,129 @@ class TestPredictWithSequenceDataset:
             batch_size=10,
         )
         assert len(result) == len(sequence_dataset)
+
+
+class TestReportDataset:
+    """Test the report_dataset function."""
+
+    @pytest.fixture
+    def sequence_dataset(self, cpu_device: str) -> SequenceDataset[tuple[torch.Tensor, ...]]:
+        """Create a toy SequenceDataset with 1-D features."""
+        torch.manual_seed(42)
+        n_samples = 6
+        n_features = 4
+        X = torch.randn(n_samples, n_features, device=cpu_device)
+        y = torch.randn(n_samples, device=cpu_device)
+        exp_idx = torch.tensor([0, 1, 2, 0, 1, 2], dtype=torch.long, device=cpu_device)
+        base = TensorDataset(X, y, exp_idx)
+        sequences = tuple(f"SEQ{i}" * 5 for i in range(n_samples))
+        return SequenceDataset(base, sequences)
+
+    def test_csv_is_written(
+        self,
+        sequence_dataset: SequenceDataset[tuple[torch.Tensor, ...]],
+        tmp_path: Path,
+    ) -> None:
+        """Test that a CSV file is created."""
+        out = tmp_path / "out.csv"
+        report_dataset(sequence_dataset, out)
+        assert out.exists()
+
+    def test_csv_has_correct_row_count(
+        self,
+        sequence_dataset: SequenceDataset[tuple[torch.Tensor, ...]],
+        tmp_path: Path,
+    ) -> None:
+        """Test that the CSV has one row per dataset entry."""
+        out = tmp_path / "out.csv"
+        report_dataset(sequence_dataset, out)
+        df = pd.read_csv(out)
+        assert len(df) == len(sequence_dataset)
+
+    def test_csv_contains_feature_columns(
+        self,
+        sequence_dataset: SequenceDataset[tuple[torch.Tensor, ...]],
+        tmp_path: Path,
+    ) -> None:
+        """Test that feature columns are present."""
+        out = tmp_path / "out.csv"
+        report_dataset(sequence_dataset, out)
+        df = pd.read_csv(out)
+        feature_cols = [c for c in df.columns if c.startswith("feature_")]
+        assert len(feature_cols) == 4
+
+    def test_csv_contains_sequence_column(
+        self,
+        sequence_dataset: SequenceDataset[tuple[torch.Tensor, ...]],
+        tmp_path: Path,
+    ) -> None:
+        """Test that the sequence column is present and correct."""
+        out = tmp_path / "out.csv"
+        report_dataset(sequence_dataset, out)
+        df = pd.read_csv(out)
+        assert SEQUENCE_KEY in df.columns
+        for i, seq in enumerate(sequence_dataset.sequences):
+            assert df[SEQUENCE_KEY].iloc[i] == seq
+
+    def test_csv_contains_experiment_column(
+        self,
+        sequence_dataset: SequenceDataset[tuple[torch.Tensor, ...]],
+        tmp_path: Path,
+    ) -> None:
+        """Test that the experiment column is present and correct."""
+        out = tmp_path / "out.csv"
+        report_dataset(sequence_dataset, out, translate_experiment_ids=False)
+        df = pd.read_csv(out)
+        assert EXPID_KEY in df.columns
+        expected_ids = np.array([0, 1, 2, 0, 1, 2])
+        np.testing.assert_array_equal(np.array(df[EXPID_KEY].values), expected_ids)
+
+    def test_include_reference_default(
+        self,
+        sequence_dataset: SequenceDataset[tuple[torch.Tensor, ...]],
+        tmp_path: Path,
+    ) -> None:
+        """Test that reference column is included by default."""
+        out = tmp_path / "out.csv"
+        report_dataset(sequence_dataset, out)
+        df = pd.read_csv(out)
+        assert REFERENCE_KEY in df.columns
+        # Verify values match by reading back through the dataset
+        expected = np.array([sequence_dataset[i][1].item() for i in range(len(sequence_dataset))])
+        np.testing.assert_array_almost_equal(np.array(df[REFERENCE_KEY].values), expected)
+
+    def test_exclude_reference(
+        self,
+        sequence_dataset: SequenceDataset[tuple[torch.Tensor, ...]],
+        tmp_path: Path,
+    ) -> None:
+        """Test that reference column is excluded when include_reference=False."""
+        out = tmp_path / "out.csv"
+        report_dataset(sequence_dataset, out, include_reference=False)
+        df = pd.read_csv(out)
+        assert REFERENCE_KEY not in df.columns
+
+    def test_multidimensional_features_are_flattened(
+        self,
+        cpu_device: str,
+        tmp_path: Path,
+    ) -> None:
+        """Test that multi-dimensional features are flattened into columns."""
+        torch.manual_seed(42)
+        X = torch.randn(4, 3, 2, device=cpu_device)
+        y = torch.randn(4, device=cpu_device)
+        exp_idx = torch.tensor([0, 1, 0, 1], dtype=torch.long, device=cpu_device)
+        base = TensorDataset(X, y, exp_idx)
+        sequences = ("AAAA", "BBBB", "CCCC", "DDDD")
+        ds = SequenceDataset(base, sequences)
+
+        out = tmp_path / "out.csv"
+        report_dataset(ds, out, translate_experiment_ids=False)
+        df = pd.read_csv(out)
+        feature_cols = [c for c in df.columns if c.startswith("feature_")]
+        assert len(feature_cols) == 6  # 3 * 2 = 6
+        # Verify values match the flattened tensor
+        expected = X.numpy().reshape(4, -1)
+        np.testing.assert_array_almost_equal(
+            df[feature_cols].to_numpy(), expected
+        )
