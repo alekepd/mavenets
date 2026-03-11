@@ -1,5 +1,6 @@
 """Routines for creating predictions using trained models."""
-from typing import TypeVar, Final, List
+from pathlib import Path
+from typing import TypeVar, Final, List, Union
 import torch
 import numpy as np
 from torch.utils.data import DataLoader, Dataset
@@ -149,3 +150,66 @@ def predict(
         df[MUTCOUNT_KEY] = _compute_mutation_distances(sequences, SARS_COV2_SEQ)
 
     return df
+
+
+def report_dataset(
+    dataset: SequenceDataset,  # type: ignore[type-arg]
+    output: Union[str, Path],
+    translate_experiment_ids: bool = True,
+    include_reference: bool = True,
+    batch_size: int = 256,
+) -> None:
+    """Write a CSV containing the features, sequences, and experiment IDs from a dataset.
+
+    Arguments:
+    ---------
+    dataset:
+        A SequenceDataset whose underlying dataset returns (features, signal, exp_id)
+        tuples. Multi-dimensional feature tensors are flattened into 1-D vectors.
+    output:
+        Path to the CSV file to write.
+    translate_experiment_ids:
+        If True, integer labels of heads are translated to the string names of
+        experiments. If False, raw integer IDs are used.
+    include_reference:
+        If True (default), include the reference signal value in the CSV under the
+        column named by REFERENCE_KEY.
+    batch_size:
+        Batch size to use when iterating over the dataset.
+
+    """
+    loader = DataLoader(dataset, batch_size=batch_size)
+
+    all_features = []
+    all_experiments = []
+    all_references = []
+
+    for batch in loader:
+        inp, signal, dataset_index = batch
+        feat_np = inp.numpy(force=True)
+
+        # Flatten non-batch dimensions into a single feature vector
+        all_features.append(feat_np.reshape(feat_np.shape[0], -1))
+        all_experiments.append(dataset_index.numpy(force=True))
+        if include_reference:
+            all_references.append(signal.numpy(force=True))
+
+    features = np.concatenate(all_features, axis=0)
+    experiments = np.concatenate(all_experiments, axis=0)
+
+    df = pd.DataFrame(
+        features,
+        columns=pd.Index([f"feature_{i}" for i in range(features.shape[1])]),
+    )
+
+    if translate_experiment_ids:
+        df[EXPID_KEY] = [resolve_dataspec(i).name for i in experiments]
+    else:
+        df[EXPID_KEY] = experiments
+
+    df[SEQUENCE_KEY] = list(dataset.sequences)
+
+    if include_reference:
+        df[REFERENCE_KEY] = np.concatenate(all_references, axis=0)
+
+    df.to_csv(output, index=False)
