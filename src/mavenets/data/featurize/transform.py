@@ -7,8 +7,12 @@ These objects are not torch modules and will not be trained via typical torch
 procedures.
 """
 
-from typing import Protocol
+from typing import Optional, Protocol
+
+import numpy as np
+from sklearn.decomposition import IncrementalPCA  # type: ignore[import-untyped]
 from torch import Tensor, flatten, no_grad, clamp
+import torch
 
 
 class SKT_protocol(Protocol):
@@ -151,3 +155,129 @@ class NullTransform:
             else:
                 to_return = data
         return to_return
+
+
+class IncrementalPCATransform:
+    """Incremental PCA for dimensionality reduction of per-residue embeddings.
+
+    Supports two modes controlled by `per_residue`:
+
+    - **Per-residue** (`per_residue=True`): Input is 3D `(n, seq_len, embed_dim)`.
+      PCA is fitted on the embedding dimension by reshaping to
+      `(n*seq_len, embed_dim)`. Output is `(n, seq_len * n_components)`.
+
+    - **Global** (`per_residue=False`): Input is 3D `(n, seq_len, embed_dim)`.
+      PCA is fitted on the flattened representation `(n, seq_len*embed_dim)`.
+      Output is `(n, n_components)`.
+
+    Designed for memory-constrained settings: call `partial_fit_chunk` repeatedly
+    on small batches, then `transform` on each batch independently.
+
+    """
+
+    def __init__(self, n_components: int, per_residue: bool = True) -> None:
+        """Store options.
+
+        Arguments:
+        ---------
+        n_components:
+            Number of principal components to retain.
+        per_residue:
+            If True, PCA operates on the embedding dimension across all residue
+            positions. If False, PCA operates on the full flattened representation.
+
+        """
+        self.n_components = n_components
+        self.per_residue = per_residue
+        self._pca = IncrementalPCA(n_components=n_components)
+        self.already_fit = False
+        self._seq_len: Optional[int] = None
+
+    def _prepare(self, data: Tensor) -> "np.ndarray[object, np.dtype[np.float64]]":
+        """Reshape and convert a 3D tensor for PCA.
+
+        Arguments:
+        ---------
+        data:
+            3D tensor of shape `(n, seq_len, embed_dim)`.
+
+        Returns:
+        -------
+        2D numpy array ready for PCA fitting or transformation.
+
+        """
+        if data.ndim != 3:
+            raise ValueError(
+                f"Expected 3D tensor (n, seq_len, embed_dim), got {data.ndim}D."
+            )
+        n, seq_len, embed_dim = data.shape
+
+        if self._seq_len is None:
+            self._seq_len = seq_len
+        elif self._seq_len != seq_len:
+            raise ValueError(
+                f"Sequence length mismatch: expected {self._seq_len}, got {seq_len}."
+            )
+
+        arr: np.ndarray[object, np.dtype[np.float64]] = data.numpy(force=True).astype(np.float64)
+        if self.per_residue:
+            return arr.reshape(n * seq_len, embed_dim)
+        else:
+            return arr.reshape(n, seq_len * embed_dim)
+
+    def partial_fit_chunk(self, chunk: Tensor) -> None:
+        """Incrementally fit PCA on a batch of embeddings.
+
+        Arguments:
+        ---------
+        chunk:
+            3D tensor of shape `(batch, seq_len, embed_dim)`.
+
+        """
+        prepared = self._prepare(chunk)
+        self._pca.partial_fit(prepared)
+        self.already_fit = True
+
+    def fit(self, data: Tensor, /) -> None:
+        """Fit PCA on the full dataset in one call.
+
+        Arguments:
+        ---------
+        data:
+            3D tensor of shape `(n, seq_len, embed_dim)`.
+
+        """
+        prepared = self._prepare(data)
+        self._pca.fit(prepared)
+        self.already_fit = True
+
+    def transform(self, data: Tensor, /) -> Tensor:
+        """Transform data using the fitted PCA.
+
+        Arguments:
+        ---------
+        data:
+            3D tensor of shape `(n, seq_len, embed_dim)`.
+
+        Returns:
+        -------
+        2D tensor of shape `(n, seq_len * n_components)` for per-residue mode,
+        or `(n, n_components)` for global mode.
+
+        """
+        if not self.already_fit:
+            raise ValueError("Transform not yet fit.")
+
+        n = data.shape[0]
+        prepared = self._prepare(data)
+        transformed: np.ndarray[object, np.dtype[np.float64]] = self._pca.transform(prepared)
+
+        if self.per_residue:
+            assert self._seq_len is not None
+            # (n*seq_len, k) -> (n, seq_len*k)
+            result = transformed.reshape(n, self._seq_len * self.n_components)
+        else:
+            # already (n, k)
+            result = transformed
+
+        return torch.tensor(result, dtype=torch.float32)
