@@ -438,13 +438,14 @@ def get_datasets(  # noqa: C901
         if a string, compared against the names. If None, all data sets are used. This
         information is only used if include_test is True.
     feat_type:
-        Featurization used; only "integer", "onehot", and "t5" are accepted. "integer"
-        corresponds to a vector with one integer entry per amino acid determining
-        the residue type. "onehot" creates a 0-1 vector that is longer with the same
-        information (see torch.nn.functional.one_hot). Note that the one hot is
-        converted to the float32 dtype. "t5" uses embeddings from a pretrained
-        T5 model from hugging face. Note that t5 may trigger the download
-        of the model which is approximately 10GB.
+        Featurization used. "integer" corresponds to a vector with one integer
+        entry per amino acid determining the residue type. "onehot" creates a
+        0-1 vector that is longer with the same information (see
+        torch.nn.functional.one_hot). Note that the one hot is converted to
+        the float32 dtype. "t5" uses embeddings from a pretrained T5 model
+        from hugging face. "t5_pca" and "t5_pca_global" apply PCA to
+        per-residue T5 embeddings. Note that t5-based options may trigger the
+        download of the model which is approximately 10GB.
     graph:
         If True, returned datasets are DNSEDataset instances based on a
         structure/sequence graph. Edges are directed and featurized; see graph_* and
