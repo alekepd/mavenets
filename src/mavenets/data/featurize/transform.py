@@ -192,6 +192,7 @@ class IncrementalPCATransform:
         self._pca = IncrementalPCA(n_components=n_components)
         self.already_fit = False
         self._seq_len: Optional[int] = None
+        self._fit_buffer: Optional["np.ndarray[object, np.dtype[np.float64]]"] = None
 
     def _prepare(self, data: Tensor) -> "np.ndarray[object, np.dtype[np.float64]]":
         """Reshape and convert a 3D tensor for PCA.
@@ -228,6 +229,11 @@ class IncrementalPCATransform:
     def partial_fit_chunk(self, chunk: Tensor) -> None:
         """Incrementally fit PCA on a batch of embeddings.
 
+        Rows are buffered internally and ``partial_fit`` is called whenever the
+        buffer accumulates at least ``n_components`` rows.  Call
+        :meth:`flush_partial_fit` after the last chunk to fit on any remaining
+        buffered rows.
+
         Arguments:
         ---------
         chunk:
@@ -235,8 +241,38 @@ class IncrementalPCATransform:
 
         """
         prepared = self._prepare(chunk)
-        self._pca.partial_fit(prepared)
-        self.already_fit = True
+
+        if self._fit_buffer is not None:
+            self._fit_buffer = np.concatenate([self._fit_buffer, prepared], axis=0)
+        else:
+            self._fit_buffer = prepared
+
+        # Flush complete blocks of size >= n_components
+        while self._fit_buffer.shape[0] >= self.n_components:
+            batch = self._fit_buffer[: self.n_components]
+            self._fit_buffer = self._fit_buffer[self.n_components :]
+            self._pca.partial_fit(batch)
+            self.already_fit = True
+
+    def flush_partial_fit(self) -> None:
+        """Fit on any remaining buffered rows from :meth:`partial_fit_chunk`.
+
+        Must be called after the last ``partial_fit_chunk`` call to ensure all
+        data is used for fitting.  If the buffer contains fewer than
+        ``n_components`` rows and PCA has already been partially fitted, the
+        remaining rows are used for a final ``partial_fit`` call.  If PCA has
+        never been fitted (i.e., total data < ``n_components``), a
+        ``ValueError`` is raised.
+
+        """
+        if self._fit_buffer is not None and self._fit_buffer.shape[0] > 0:
+            if not self.already_fit:
+                raise ValueError(
+                    f"Total number of samples ({self._fit_buffer.shape[0]}) is less "
+                    f"than n_components ({self.n_components}). Cannot fit PCA."
+                )
+            self._pca.partial_fit(self._fit_buffer)
+            self._fit_buffer = None
 
     def fit(self, data: Tensor, /) -> None:
         """Fit PCA on the full dataset in one call.

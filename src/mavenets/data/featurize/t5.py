@@ -197,6 +197,7 @@ def t5_pca_encode(
             piece = int_encoded[start : start + batch_size]
             embeddings = enc.vectorized_encode(piece).cpu()
             pca_transform.partial_fit_chunk(embeddings)
+        pca_transform.flush_partial_fit()
 
     # Transform pass: encode with T5 and project with PCA
     transformed: List[Tensor] = []
