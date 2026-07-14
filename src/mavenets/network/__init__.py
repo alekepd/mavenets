@@ -17,10 +17,12 @@ from .nontraditional import LRMLP  # noqa: F401
 # Lazy imports for modules requiring torch_scatter/torch_geometric
 _lazy_imports = {
     "GraphNet": ".mpn",
+    "T5LoRAModel": ".t5lora",
 }
 
 if TYPE_CHECKING:
     from .mpn import GraphNet  # noqa: F401
+    from .t5lora import T5LoRAModel  # noqa: F401
 
 
 def __getattr__(name: str):

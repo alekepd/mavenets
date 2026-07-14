@@ -2,6 +2,7 @@
 
 from typing import Final, List, Optional, Sequence, Iterable, TypeVar
 from .core import IntEncoder, get_default_int_encoder
+from .transform import IncrementalPCATransform
 from torch import Tensor
 
 from transformers import T5Tokenizer, T5EncoderModel  # type:ignore
@@ -135,3 +136,75 @@ class T5EncoderWrapper:
         for piece in chunks(int_encoded, self.batch_size):
             processed.append(self.vectorized_encode(piece))
         return torch.concatenate(processed, axis=0)  # type: ignore[arg-type]
+
+
+def t5_pca_encode(
+    int_encoded: Tensor,
+    pca_transform: IncrementalPCATransform,
+    integer_encoder: IntEncoder,
+    device: str,
+    fit_pca: bool,
+    batch_size: int = 32,
+) -> Tensor:
+    """Encode sequences with T5 and apply PCA dimensionality reduction.
+
+    When `fit_pca` is True (training data), this performs two passes through the
+    T5 model: the first incrementally fits the PCA transform on per-residue
+    embeddings, and the second transforms and collects the reduced features.
+    This avoids holding all raw T5 embeddings in memory simultaneously.
+
+    When `fit_pca` is False (validation/test data), only a single pass is needed
+    using the already-fitted PCA transform.
+
+    Arguments:
+    ---------
+    int_encoded:
+        Integer-encoded sequences of shape `(n, seq_len)`.
+    pca_transform:
+        IncrementalPCATransform instance. If `fit_pca` is True, this will be
+        fitted incrementally on the training embeddings. If False, it must
+        already be fitted.
+    integer_encoder:
+        IntEncoder used to decode integer sequences back to strings for T5.
+    device:
+        Torch device for T5 inference (e.g., "cuda" or "cpu").
+    fit_pca:
+        If True, incrementally fit the PCA on the embeddings before transforming.
+        If False, use the already-fitted PCA to transform directly.
+    batch_size:
+        Number of sequences to process per T5 forward pass.
+
+    Returns:
+    -------
+    Tensor of shape `(n, seq_len_out * n_components)` for per-residue PCA or
+    `(n, n_components)` for global PCA, where `seq_len_out` includes the T5
+    EOS token.
+
+    """
+    enc = T5EncoderWrapper(
+        integer_encoder=integer_encoder,
+        device=device,
+        per_protein=False,
+        flatten=False,
+        batch_size=batch_size,
+    )
+
+    n = int_encoded.shape[0]
+
+    if fit_pca:
+        # Pass 1: Incrementally fit PCA on T5 embeddings
+        for start in range(0, n, batch_size):
+            piece = int_encoded[start : start + batch_size]
+            embeddings = enc.vectorized_encode(piece).cpu()
+            pca_transform.partial_fit_chunk(embeddings)
+        pca_transform.flush_partial_fit()
+
+    # Transform pass: encode with T5 and project with PCA
+    transformed: List[Tensor] = []
+    for start in range(0, n, batch_size):
+        piece = int_encoded[start : start + batch_size]
+        embeddings = enc.vectorized_encode(piece).cpu()
+        projected = pca_transform.transform(embeddings)
+        transformed.append(projected)
+
+    return torch.concatenate(transformed, dim=0)

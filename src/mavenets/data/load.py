@@ -28,6 +28,7 @@ from .featurize import (
     SKT_protocol,
     Whiten,
     NullTransform,
+    IncrementalPCATransform,
 )
 from .graph import get_graph
 
@@ -335,7 +336,7 @@ def get_datasets(
     train_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = ...,
     val_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = ...,
     test_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = ...,
-    feat_type: Literal["integer", "onehot", "t5"] = ...,
+    feat_type: Literal["integer", "onehot", "t5", "t5_pca", "t5_pca_global"] = ...,
     graph: bool = ...,
     graph_sequence_window_size: int = ...,
     graph_n_distance_feats: int = ...,
@@ -343,6 +344,7 @@ def get_datasets(
     parent_path: Path = ...,
     include_test: Literal[False],
     whiten: Optional[bool] = ...,
+    pca_components: Optional[int] = ...,
 ) -> Tuple[SequenceDataset, SequenceDataset]:
     ...
 
@@ -354,7 +356,7 @@ def get_datasets(
     train_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = ...,
     val_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = ...,
     test_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = ...,
-    feat_type: Literal["integer", "onehot", "t5"] = ...,
+    feat_type: Literal["integer", "onehot", "t5", "t5_pca", "t5_pca_global"] = ...,
     graph: bool = ...,
     graph_sequence_window_size: int = ...,
     graph_n_distance_feats: int = ...,
@@ -362,6 +364,7 @@ def get_datasets(
     parent_path: Path = ...,
     include_test: Literal[True],
     whiten: Optional[bool] = ...,
+    pca_components: Optional[int] = ...,
 ) -> Tuple[SequenceDataset, SequenceDataset, SequenceDataset]:
     ...
 
@@ -373,7 +376,7 @@ def get_datasets(
     train_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = ...,
     val_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = ...,
     test_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = ...,
-    feat_type: Literal["integer", "onehot", "t5"] = ...,
+    feat_type: Literal["integer", "onehot", "t5", "t5_pca", "t5_pca_global"] = ...,
     graph: bool = ...,
     graph_sequence_window_size: int = ...,
     graph_n_distance_feats: int = ...,
@@ -381,6 +384,7 @@ def get_datasets(
     parent_path: Path = ...,
     include_test: Literal[False] = ...,
     whiten: Optional[bool] = ...,
+    pca_components: Optional[int] = ...,
 ) -> Tuple[SequenceDataset, SequenceDataset]:
     ...
 
@@ -391,7 +395,7 @@ def get_datasets(  # noqa: C901
     train_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = None,
     val_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = None,
     test_specs: Union[None, Iterable[DataSpec], Iterable[int], Iterable[str]] = None,
-    feat_type: Literal["integer", "onehot", "t5"] = "integer",
+    feat_type: Literal["integer", "onehot", "t5", "t5_pca", "t5_pca_global"] = "integer",
     graph: bool = False,
     graph_sequence_window_size: int = 10,
     graph_n_distance_feats: int = 10,
@@ -399,6 +403,7 @@ def get_datasets(  # noqa: C901
     parent_path: Path = Path(),
     include_test: bool = False,
     whiten: Optional[bool] = None,
+    pca_components: Optional[int] = None,
 ) -> Union[
     Tuple[SequenceDataset, SequenceDataset],
     Tuple[SequenceDataset, SequenceDataset, SequenceDataset],
@@ -433,13 +438,14 @@ def get_datasets(  # noqa: C901
         if a string, compared against the names. If None, all data sets are used. This
         information is only used if include_test is True.
     feat_type:
-        Featurization used; only "integer", "onehot", and "t5" are accepted. "integer"
-        corresponds to a vector with one integer entry per amino acid determining
-        the residue type. "onehot" creates a 0-1 vector that is longer with the same
-        information (see torch.nn.functional.one_hot). Note that the one hot is
-        converted to the float32 dtype. "t5" uses embeddings from a pretrained
-        T5 model from hugging face. Note that t5 may trigger the download
-        of the model which is approximately 10GB.
+        Featurization used. "integer" corresponds to a vector with one integer
+        entry per amino acid determining the residue type. "onehot" creates a
+        0-1 vector that is longer with the same information (see
+        torch.nn.functional.one_hot). Note that the one hot is converted to
+        the float32 dtype. "t5" uses embeddings from a pretrained T5 model
+        from hugging face. "t5_pca" and "t5_pca_global" apply PCA to
+        per-residue T5 embeddings. Note that t5-based options may trigger the
+        download of the model which is approximately 10GB.
     graph:
         If True, returned datasets are DNSEDataset instances based on a
         structure/sequence graph. Edges are directed and featurized; see graph_* and
@@ -465,8 +471,11 @@ def get_datasets(  # noqa: C901
     whiten:
         Whether to whiten features. If True, a whitening transform is trained on
         the statistics of the training set and used to transform the training,
-        validation, and test sets. If None, we use whitening on t5 transformed
-        data but not elsewhere.
+        validation, and test sets. If None, we use whitening on t5-based
+        featurizations but not elsewhere.
+    pca_components:
+        Number of PCA components to retain. Required when feat_type is "t5_pca"
+        or "t5_pca_global", ignored otherwise.
 
     Returns:
     -------
@@ -478,11 +487,20 @@ def get_datasets(  # noqa: C901
     returned.
 
     """
-    if feat_type not in ("integer", "onehot", "t5"):
-        raise ValueError("Only integer, onehot, or t5 featurization is supported.")
+    _valid_feat_types = ("integer", "onehot", "t5", "t5_pca", "t5_pca_global")
+    if feat_type not in _valid_feat_types:
+        raise ValueError(
+            f"Unknown feat_type {feat_type!r}. Must be one of {_valid_feat_types}."
+        )
+
+    _pca_feat_types = ("t5_pca", "t5_pca_global")
+    if feat_type in _pca_feat_types and pca_components is None:
+        raise ValueError(
+            f"pca_components must be specified when feat_type is {feat_type!r}."
+        )
 
     if whiten is None:
-        whiten = feat_type == "t5"
+        whiten = feat_type in ("t5", "t5_pca", "t5_pca_global")
 
     if whiten:
         post_transform: SKT_protocol = Whiten()
@@ -508,8 +526,9 @@ def get_datasets(  # noqa: C901
 
     all_frames = [train_frame, valid_frame]
 
+    test_frame: Optional[pd.DataFrame] = None
     if include_test:
-        test_frame: Optional[pd.DataFrame] = _get_aggregate_mave_csv(
+        test_frame = _get_aggregate_mave_csv(
             specs=test_specs, identifier="test_filename", directory=parent_path
         )
         all_frames.append(test_frame)
@@ -522,6 +541,109 @@ def get_datasets(  # noqa: C901
     alpha = get_alphabet(pd.concat(all_frames), SEQ_CNAME)
     if not set(alpha).issubset(set(enc.alphabet)):
         raise ValueError("Data contains residues not represented fixed alphabet.")
+
+    if feat_type in _pca_feat_types:
+        from .featurize.t5 import t5_pca_encode
+
+        assert pca_components is not None  # validated above
+        pca = IncrementalPCATransform(
+            n_components=pca_components,
+            per_residue=(feat_type == "t5_pca"),
+        )
+
+        train_int_encoded = enc.batch_encode(train_frame.loc[:, SEQ_CNAME])
+        train_encoded = t5_pca_encode(
+            int_encoded=train_int_encoded,
+            pca_transform=pca,
+            integer_encoder=enc,
+            device=device,
+            fit_pca=True,
+        )
+        train_signal = tensor(
+            train_frame.loc[:, SIGNAL_CNAME].to_numpy(), dtype=float32
+        )
+        train_dset_id = tensor(
+            train_frame.loc[:, EXPERIMENT_CNAME].to_numpy(), dtype=int32
+        )
+        train_sequences: Tuple[str, ...] = tuple(
+            train_frame.loc[:, SEQ_CNAME].tolist()
+        )
+
+        valid_int_encoded = enc.batch_encode(valid_frame.loc[:, SEQ_CNAME])
+        valid_encoded = t5_pca_encode(
+            int_encoded=valid_int_encoded,
+            pca_transform=pca,
+            integer_encoder=enc,
+            device=device,
+            fit_pca=False,
+        )
+        valid_signal = tensor(
+            valid_frame.loc[:, SIGNAL_CNAME].to_numpy(), dtype=float32
+        )
+        valid_dset_id = tensor(
+            valid_frame.loc[:, EXPERIMENT_CNAME].to_numpy(), dtype=int32
+        )
+        valid_sequences: Tuple[str, ...] = tuple(
+            valid_frame.loc[:, SEQ_CNAME].tolist()
+        )
+
+        test_encoded_pca: Optional[Tensor] = None
+        test_signal_pca: Optional[Tensor] = None
+        test_dset_id_pca: Optional[Tensor] = None
+        test_sequences_pca: Optional[Tuple[str, ...]] = None
+
+        if include_test:
+            assert test_frame is not None
+            test_int_encoded = enc.batch_encode(test_frame.loc[:, SEQ_CNAME])
+            test_encoded_pca = t5_pca_encode(
+                int_encoded=test_int_encoded,
+                pca_transform=pca,
+                integer_encoder=enc,
+                device=device,
+                fit_pca=False,
+            )
+            test_signal_pca = tensor(
+                test_frame.loc[:, SIGNAL_CNAME].to_numpy(), dtype=float32
+            )
+            test_dset_id_pca = tensor(
+                test_frame.loc[:, EXPERIMENT_CNAME].to_numpy(), dtype=int32
+            )
+            test_sequences_pca = tuple(test_frame.loc[:, SEQ_CNAME].tolist())
+
+        post_transform.fit(train_encoded)
+        train_encoded = post_transform.transform(train_encoded)
+        valid_encoded = post_transform.transform(valid_encoded)
+
+        pca_train_base = TensorDataset(
+            train_encoded.to(device), train_signal.to(device), train_dset_id.to(device)
+        )
+        pca_valid_base = TensorDataset(
+            valid_encoded.to(device), valid_signal.to(device), valid_dset_id.to(device)
+        )
+
+        pca_test_base: Optional[TensorDataset] = None
+
+        if (
+            include_test
+            and test_encoded_pca is not None
+            and test_signal_pca is not None
+            and test_dset_id_pca is not None
+        ):
+            test_encoded_pca = post_transform.transform(test_encoded_pca)
+            pca_test_base = TensorDataset(
+                test_encoded_pca.to(device),
+                test_signal_pca.to(device),
+                test_dset_id_pca.to(device),
+            )
+
+        pca_train_ds = SequenceDataset(pca_train_base, train_sequences)
+        pca_valid_ds = SequenceDataset(pca_valid_base, valid_sequences)
+
+        if include_test and pca_test_base is not None and test_sequences_pca is not None:
+            pca_test_ds = SequenceDataset(pca_test_base, test_sequences_pca)
+            return pca_train_ds, pca_valid_ds, pca_test_ds
+
+        return pca_train_ds, pca_valid_ds
 
     train_encoded, train_signal, train_dset_id, train_sequences = _process_table(
         train_frame,
@@ -543,10 +665,11 @@ def get_datasets(  # noqa: C901
     valid_encoded = post_transform.transform(valid_encoded)
 
     # Initialize test variables - will be set if include_test is True
-    test_base: Optional[SizedDataset[object]] = None
-    test_sequences: Optional[Tuple[str, ...]] = None
+    test_base = None
+    test_sequences = None
 
     if include_test:
+        assert test_frame is not None
         test_encoded, test_signal, test_dset_id, test_sequences = _process_table(
             test_frame,
             feat_type=feat_type,
