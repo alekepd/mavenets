@@ -42,6 +42,10 @@ jobs:
         run: |
           pip install -e ".[test]"
 
-      - name: Run tests (skip GPU and slow tests)
+      - name: Run unit and integration tests (skip GPU and slow tests)
         run: |
-          pytest -m "not gpu and not slow" --tb=short -v
+          pytest tests/unit tests/integration -m "not gpu and not slow" --tb=short -v
+
+      - name: Run regression tests
+        run: |
+          pytest tests/regression -m "not gpu and not slow" --tb=short -v

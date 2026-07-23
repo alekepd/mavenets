@@ -95,4 +95,5 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "gpu: marks tests that require GPU",
     "integration: marks integration tests",
+    "regression: marks regression tests for reproducibility checking",
 ]
